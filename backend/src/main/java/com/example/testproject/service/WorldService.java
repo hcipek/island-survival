@@ -6,13 +6,11 @@ import com.example.testproject.model.*;
 import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
 import com.example.testproject.model.dto.IslandLocationDto;
-import com.example.testproject.model.dto.PlayerPresenceDto;
 import com.example.testproject.model.dto.WorldDto;
 import com.example.testproject.model.dto.WorldStateDto;
 import com.example.testproject.model.req.BuildingRequest;
 import com.example.testproject.model.req.CreateBoatRequest;
 import com.example.testproject.model.req.CreateWorldRequest;
-import com.example.testproject.model.req.UpdatePositionRequest;
 import com.example.testproject.repository.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -52,11 +50,6 @@ public class WorldService {
     /// Enough to build a first lumberjack immediately - otherwise a fresh
     /// world could never produce any wood at all.
     private static final double STARTING_WOOD = LUMBERJACK_COST;
-
-    /// How long a player's last reported position is still trusted before
-    /// they're treated as having left (e.g. closed the tab) and dropped
-    /// from everyone else's view.
-    private static final Duration PRESENCE_TIMEOUT = Duration.ofSeconds(10);
 
     private final WorldRepository worldRepository;
     private final WorldIslandRepository worldIslandRepository;
@@ -110,35 +103,6 @@ public class WorldService {
         worldIslandRepository.deleteAll(worldIslandRepository.findAllByWorldId(worldId));
         playerPresenceRepository.deleteAll(playerPresenceRepository.findAllByWorldId(worldId));
         worldRepository.deleteById(worldId);
-    }
-
-    public void updatePlayerPosition(long worldId, long userId, UpdatePositionRequest request) {
-        getWorldOrThrow(worldId);
-        userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown user"));
-
-        PlayerPresence presence = playerPresenceRepository.findByWorldIdAndUserId(worldId, userId)
-                .orElseGet(() -> new PlayerPresence(worldId, userId));
-        presence.setX(request.x());
-        presence.setY(request.y());
-        presence.setLastSeenAt(Instant.now());
-        playerPresenceRepository.save(presence);
-    }
-
-    public List<PlayerPresenceDto> getPlayers(long worldId, long excludingUserId) {
-        getWorldOrThrow(worldId);
-        Instant cutoff = Instant.now().minus(PRESENCE_TIMEOUT);
-
-        return playerPresenceRepository.findAllByWorldId(worldId).stream()
-                .filter(p -> p.getUserId() != excludingUserId)
-                .filter(p -> p.getLastSeenAt().isAfter(cutoff))
-                .map(p -> {
-                    User user = userRepository.findById(p.getUserId()).orElse(null);
-                    String name = user != null ? user.getName() : "Unknown";
-                    String color = user != null ? user.getColor() : "#9E9E9E";
-                    return new PlayerPresenceDto(p.getUserId(), name, color, p.getX(), p.getY());
-                })
-                .toList();
     }
 
     public synchronized List<IslandLocationDto> getIslands(long worldId) {
@@ -224,11 +188,6 @@ public class WorldService {
         }
     }
 
-    public List<BoatDto> getBoats(long worldId) {
-        getWorldOrThrow(worldId);
-        return boatRepository.findAllByWorldId(worldId).stream().map(BoatDto::from).toList();
-    }
-
     /// Builds a boat just off the coast next to one of the requester's own
     /// ports, paid for from the world's wood.
     public BoatDto createBoat(long worldId, CreateBoatRequest request) {
@@ -267,18 +226,6 @@ public class WorldService {
         sessionRegistry.broadcast(worldId, LiveEvents.boatAdded(boat));
         sessionRegistry.broadcast(worldId, LiveEvents.state(toStateDto(world)));
         return boat;
-    }
-
-    public void updateBoatPosition(long worldId, long boatId, long userId, UpdatePositionRequest request) {
-        Boat boat = boatRepository.findById(boatId)
-                .filter(b -> b.getWorldId().equals(worldId))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Boat not found"));
-        if (boat.getOwnerId() != userId) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the owner can sail this boat");
-        }
-        boat.setX(request.x());
-        boat.setY(request.y());
-        boatRepository.save(boat);
     }
 
     private WorldIsland nearestIsland(long worldId, double x, double y) {

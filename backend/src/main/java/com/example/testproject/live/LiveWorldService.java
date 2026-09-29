@@ -98,7 +98,6 @@ public class LiveWorldService {
         presence.setX(position.x());
         presence.setY(position.y());
         presence.setBoatId(null);
-        presence.setLastSeenAt(Instant.now());
         playerPresenceRepository.save(presence);
         playerMovements.remove(movementKey(worldId, userId));
 

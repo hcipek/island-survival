@@ -8,7 +8,7 @@ import com.example.testproject.model.req.BuildingRequest;
 import com.example.testproject.model.req.CreateBoatRequest;
 import com.example.testproject.model.req.CreateUserRequest;
 import com.example.testproject.model.req.CreateWorldRequest;
-import com.example.testproject.model.req.UpdatePositionRequest;
+import com.example.testproject.repository.BoatRepository;
 import com.example.testproject.repository.WorldRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,6 +46,9 @@ class WorldServiceTest {
 
     @Autowired
     private WorldRepository worldRepository;
+
+    @Autowired
+    private BoatRepository boatRepository;
 
     private long worldId;
     private long aliceId;
@@ -149,7 +152,7 @@ class WorldServiceTest {
         assertThat(boat.x()).isCloseTo(630, within(0.01));
         assertThat(boat.y()).isCloseTo(0, within(0.01));
         assertThat(boat.ownerId()).isEqualTo(aliceId);
-        assertThat(worldService.getBoats(worldId)).hasSize(1);
+        assertThat(boatRepository.findAllByWorldId(worldId)).hasSize(1);
     }
 
     @Test
@@ -168,7 +171,7 @@ class WorldServiceTest {
 
         assertStatus(HttpStatus.CONFLICT,
                 () -> worldService.createBoat(worldId, new CreateBoatRequest(port.id(), aliceId)));
-        assertThat(worldService.getBoats(worldId)).isEmpty();
+        assertThat(boatRepository.findAllByWorldId(worldId)).isEmpty();
     }
 
     @Test
@@ -185,25 +188,6 @@ class WorldServiceTest {
 
         assertStatus(HttpStatus.NOT_FOUND,
                 () -> worldService.createBoat(worldId, new CreateBoatRequest(lumberjack.id(), aliceId)));
-    }
-
-    @Test
-    void ownerCanSailTheirBoat() {
-        BoatDto boat = buildBoatForAlice();
-
-        worldService.updateBoatPosition(worldId, boat.id(), aliceId, new UpdatePositionRequest(1000, 200));
-
-        BoatDto moved = worldService.getBoats(worldId).getFirst();
-        assertThat(moved.x()).isEqualTo(1000);
-        assertThat(moved.y()).isEqualTo(200);
-    }
-
-    @Test
-    void otherPlayersCannotSailSomeoneElsesBoat() {
-        BoatDto boat = buildBoatForAlice();
-
-        assertStatus(HttpStatus.FORBIDDEN, () -> worldService.updateBoatPosition(
-                worldId, boat.id(), bobId, new UpdatePositionRequest(1000, 200)));
     }
 
     @Test

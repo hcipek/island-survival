@@ -3,19 +3,15 @@ package com.example.testproject.controller;
 import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
 import com.example.testproject.model.dto.IslandLocationDto;
-import com.example.testproject.model.dto.PlayerPresenceDto;
 import com.example.testproject.model.dto.WorldDto;
-import com.example.testproject.model.dto.WorldStateDto;
 import com.example.testproject.model.req.BuildingRequest;
 import com.example.testproject.model.req.CreateBoatRequest;
 import com.example.testproject.model.req.CreateWorldRequest;
-import com.example.testproject.model.req.UpdatePositionRequest;
 import com.example.testproject.service.WorldService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -51,16 +47,6 @@ public class WorldController {
         return worldService.getIslands(worldId);
     }
 
-    @GetMapping("/api/worlds/{worldId}/state")
-    public WorldStateDto getState(@PathVariable long worldId) {
-        return worldService.getState(worldId);
-    }
-
-    @GetMapping("/api/worlds/{worldId}/buildings")
-    public List<BuildingDto> getBuildings(@PathVariable long worldId) {
-        return worldService.getBuildings(worldId);
-    }
-
     @PostMapping("/api/worlds/{worldId}/buildings")
     public BuildingDto createBuilding(@PathVariable long worldId, @RequestBody BuildingRequest request) {
         return worldService.createBuilding(worldId, request);
@@ -75,40 +61,8 @@ public class WorldController {
         worldService.deleteBuilding(worldId, buildingId, userId);
     }
 
-    @GetMapping("/api/worlds/{worldId}/boats")
-    public List<BoatDto> getBoats(@PathVariable long worldId) {
-        return worldService.getBoats(worldId);
-    }
-
     @PostMapping("/api/worlds/{worldId}/boats")
     public BoatDto createBoat(@PathVariable long worldId, @RequestBody CreateBoatRequest request) {
         return worldService.createBoat(worldId, request);
-    }
-
-    @PutMapping("/api/worlds/{worldId}/boats/{boatId}/position")
-    public void updateBoatPosition(
-            @PathVariable long worldId,
-            @PathVariable long boatId,
-            @RequestParam long userId,
-            @RequestBody UpdatePositionRequest request
-    ) {
-        worldService.updateBoatPosition(worldId, boatId, userId, request);
-    }
-
-    @PutMapping("/api/worlds/{worldId}/players/{userId}/position")
-    public void updatePlayerPosition(
-            @PathVariable long worldId,
-            @PathVariable long userId,
-            @RequestBody UpdatePositionRequest request
-    ) {
-        worldService.updatePlayerPosition(worldId, userId, request);
-    }
-
-    @GetMapping("/api/worlds/{worldId}/players")
-    public List<PlayerPresenceDto> getPlayers(
-            @PathVariable long worldId,
-            @RequestParam long excludeUserId
-    ) {
-        return worldService.getPlayers(worldId, excludeUserId);
     }
 }

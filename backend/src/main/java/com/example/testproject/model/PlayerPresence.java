@@ -5,12 +5,9 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 
-import java.time.Instant;
-
-/// Where a user was last seen in a given world - polled by every other
-/// client in that world so they can render everyone's approximate live
-/// position. A row is considered stale (and excluded from results) once
-/// its [lastSeenAt] is older than the presence timeout.
+/// Where a player is in a given world, and which boat they're aboard.
+/// Whether they're online is tracked by their open socket instead - see
+/// `WorldSessionRegistry`.
 @Entity
 public class PlayerPresence {
 
@@ -22,7 +19,6 @@ public class PlayerPresence {
     private Long userId;
     private double x;
     private double y;
-    private Instant lastSeenAt = Instant.now();
 
     /// The boat this player is aboard, or null when on foot. While set, the
     /// player's position is the boat's.
@@ -62,14 +58,6 @@ public class PlayerPresence {
 
     public void setY(double y) {
         this.y = y;
-    }
-
-    public Instant getLastSeenAt() {
-        return lastSeenAt;
-    }
-
-    public void setLastSeenAt(Instant lastSeenAt) {
-        this.lastSeenAt = lastSeenAt;
     }
 
     public Long getBoatId() {
