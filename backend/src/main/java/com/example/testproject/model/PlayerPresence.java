@@ -24,6 +24,10 @@ public class PlayerPresence {
     private double y;
     private Instant lastSeenAt = Instant.now();
 
+    /// The boat this player is aboard, or null when on foot. While set, the
+    /// player's position is the boat's.
+    private Long boatId;
+
     protected PlayerPresence() {
     }
 
@@ -66,5 +70,13 @@ public class PlayerPresence {
 
     public void setLastSeenAt(Instant lastSeenAt) {
         this.lastSeenAt = lastSeenAt;
+    }
+
+    public Long getBoatId() {
+        return boatId;
+    }
+
+    public void setBoatId(Long boatId) {
+        this.boatId = boatId;
     }
 }

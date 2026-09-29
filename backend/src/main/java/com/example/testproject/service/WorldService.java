@@ -1,5 +1,7 @@
 package com.example.testproject.service;
 
+import com.example.testproject.live.LiveEvents;
+import com.example.testproject.live.WorldSessionRegistry;
 import com.example.testproject.model.*;
 import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
@@ -62,6 +64,7 @@ public class WorldService {
     private final UserRepository userRepository;
     private final PlayerPresenceRepository playerPresenceRepository;
     private final BoatRepository boatRepository;
+    private final WorldSessionRegistry sessionRegistry;
     private final Random random = new Random();
 
     public WorldService(
@@ -70,7 +73,8 @@ public class WorldService {
             BuildingRepository buildingRepository,
             UserRepository userRepository,
             PlayerPresenceRepository playerPresenceRepository,
-            BoatRepository boatRepository
+            BoatRepository boatRepository,
+            WorldSessionRegistry sessionRegistry
     ) {
         this.worldRepository = worldRepository;
         this.worldIslandRepository = worldIslandRepository;
@@ -78,6 +82,7 @@ public class WorldService {
         this.userRepository = userRepository;
         this.playerPresenceRepository = playerPresenceRepository;
         this.boatRepository = boatRepository;
+        this.sessionRegistry = sessionRegistry;
     }
 
     public List<WorldDto> listWorlds() {
@@ -190,7 +195,12 @@ public class WorldService {
         Building building = buildingRepository.save(
                 new Building(worldId, owner.getId(), request.type(), request.x(), request.y())
         );
-        return toBuildingDto(building, owner);
+        BuildingDto dto = toBuildingDto(building, owner);
+        sessionRegistry.broadcast(worldId, LiveEvents.buildingAdded(dto));
+        if (request.type() == BuildingType.LUMBERJACK) {
+            sessionRegistry.broadcast(worldId, LiveEvents.state(toStateDto(world)));
+        }
+        return dto;
     }
 
     public void deleteBuilding(long worldId, long buildingId, long userId) {
@@ -208,6 +218,10 @@ public class WorldService {
         worldRepository.save(world);
 
         buildingRepository.delete(building);
+        sessionRegistry.broadcast(worldId, LiveEvents.buildingRemoved(buildingId));
+        if (building.getType() == BuildingType.LUMBERJACK) {
+            sessionRegistry.broadcast(worldId, LiveEvents.state(toStateDto(world)));
+        }
     }
 
     public List<BoatDto> getBoats(long worldId) {
@@ -249,7 +263,10 @@ public class WorldService {
         double x = island.getCenterX() + dx / length * spawnDistance;
         double y = island.getCenterY() + dy / length * spawnDistance;
 
-        return BoatDto.from(boatRepository.save(new Boat(worldId, port.getOwnerId(), x, y)));
+        BoatDto boat = BoatDto.from(boatRepository.save(new Boat(worldId, port.getOwnerId(), x, y)));
+        sessionRegistry.broadcast(worldId, LiveEvents.boatAdded(boat));
+        sessionRegistry.broadcast(worldId, LiveEvents.state(toStateDto(world)));
+        return boat;
     }
 
     public void updateBoatPosition(long worldId, long boatId, long userId, UpdatePositionRequest request) {
