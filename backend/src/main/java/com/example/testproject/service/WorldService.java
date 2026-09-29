@@ -152,6 +152,10 @@ public class WorldService {
         World world = getWorldOrThrow(worldId);
         User owner = userRepository.findById(request.ownerId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown user"));
+        if (request.type() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Building type is required");
+        }
+        requireValidPlacement(worldId, request);
         collectPendingResources(world);
 
         if (request.type() == BuildingType.LUMBERJACK) {
@@ -178,11 +182,14 @@ public class WorldService {
         return toBuildingDto(building, owner);
     }
 
-    public void deleteBuilding(long worldId, long buildingId) {
+    public void deleteBuilding(long worldId, long buildingId, long userId) {
         World world = getWorldOrThrow(worldId);
         Building building = buildingRepository.findById(buildingId)
                 .filter(b -> b.getWorldId().equals(worldId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Building not found"));
+        if (building.getOwnerId() != userId) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the owner can remove this building");
+        }
 
         // Settle wood earned up to now before the building (and any
         // production it contributes) disappears.
@@ -190,6 +197,23 @@ public class WorldService {
         worldRepository.save(world);
 
         buildingRepository.delete(building);
+    }
+
+    /// Mirrors the client's placement preview: ports only on an island's
+    /// sand ring, lumberjacks only on its grass.
+    private void requireValidPlacement(long worldId, BuildingRequest request) {
+        List<WorldIsland> islands = worldIslandRepository.findAllByWorldId(worldId);
+        boolean valid = switch (request.type()) {
+            case PORT -> islands.stream().anyMatch(i -> i.isOnSand(request.x(), request.y()));
+            case LUMBERJACK -> islands.stream().anyMatch(i -> i.isOnGrass(request.x(), request.y()));
+        };
+        if (!valid) {
+            String where = request.type() == BuildingType.PORT ? "on the sand" : "on the grass";
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "A " + request.type().name().toLowerCase() + " must be built " + where
+            );
+        }
     }
 
     private World getWorldOrThrow(long worldId) {

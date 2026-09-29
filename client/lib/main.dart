@@ -281,9 +281,9 @@ class IslandApi {
     return body['id'] as int;
   }
 
-  Future<void> deleteBuilding(int worldId, int id) async {
+  Future<void> deleteBuilding(int worldId, int id, int userId) async {
     final response = await http.delete(
-      Uri.parse('$_baseUrl/api/worlds/$worldId/buildings/$id'),
+      Uri.parse('$_baseUrl/api/worlds/$worldId/buildings/$id?userId=$userId'),
     );
     if (response.statusCode != 200) {
       throw Exception(_errorMessage(response));
@@ -880,7 +880,7 @@ class _IslandScreenState extends State<IslandScreen> {
 
   Future<bool> _destroyPortBackend(int id) async {
     try {
-      await _api.deleteBuilding(widget.worldId, id);
+      await _api.deleteBuilding(widget.worldId, id, widget.userId);
       return true;
     } catch (e) {
       if (mounted) {
@@ -915,7 +915,7 @@ class _IslandScreenState extends State<IslandScreen> {
 
   Future<bool> _destroyLumberjackBackend(int id) async {
     try {
-      await _api.deleteBuilding(widget.worldId, id);
+      await _api.deleteBuilding(widget.worldId, id, widget.userId);
       await _refresh(); // production rate just changed - reflect it immediately
       return true;
     } catch (e) {

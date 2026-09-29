@@ -65,8 +65,12 @@ public class WorldController {
     }
 
     @DeleteMapping("/api/worlds/{worldId}/buildings/{buildingId}")
-    public void deleteBuilding(@PathVariable long worldId, @PathVariable long buildingId) {
-        worldService.deleteBuilding(worldId, buildingId);
+    public void deleteBuilding(
+            @PathVariable long worldId,
+            @PathVariable long buildingId,
+            @RequestParam long userId
+    ) {
+        worldService.deleteBuilding(worldId, buildingId, userId);
     }
 
     @PutMapping("/api/worlds/{worldId}/players/{userId}/position")
