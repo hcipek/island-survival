@@ -32,6 +32,7 @@ class BuildingRecord {
   final BuildingType type;
   final double x;
   final double y;
+  final int ownerId;
   final Color ownerColor;
 
   const BuildingRecord({
@@ -39,7 +40,24 @@ class BuildingRecord {
     required this.type,
     required this.x,
     required this.y,
+    required this.ownerId,
     required this.ownerColor,
+  });
+}
+
+/// A boat as stored on the backend - its owner's client reports where it
+/// is while sailing, so everyone sees it in the same place.
+class BoatRecord {
+  final int id;
+  final int ownerId;
+  final double x;
+  final double y;
+
+  const BoatRecord({
+    required this.id,
+    required this.ownerId,
+    required this.x,
+    required this.y,
   });
 }
 
@@ -67,14 +85,18 @@ class IslandGame extends FlameGame {
 
   final List<IslandLayout> islandLayout;
   final List<BuildingRecord> existingBuildings;
+  final List<BoatRecord> existingBoats;
+  final int userId;
   final String username;
   final Color playerColor;
 
   IslandGame({
     required this.islandLayout,
+    required this.userId,
     required this.username,
     required this.playerColor,
     this.existingBuildings = const [],
+    this.existingBoats = const [],
   });
 
   late final World islandWorld;
@@ -117,6 +139,15 @@ class IslandGame extends FlameGame {
   /// the actual backend call and reports whether it succeeded, so the
   /// removal can be rolled back (the building re-added) if not.
   Future<bool> Function(int backendId)? onLumberjackDestroyRequested;
+
+  /// Called when the player builds a boat at one of their ports; the
+  /// Flutter UI performs the backend call (spending wood) and returns the
+  /// new boat, or null on failure.
+  Future<BoatRecord?> Function(int portBackendId)? onBoatBuildRequested;
+
+  /// Called with a short message the Flutter UI should show the player,
+  /// e.g. when they try to board someone else's boat.
+  void Function(String message)? onNotice;
 
   /// Called whenever placement mode starts, moves, or ends, so the Flutter
   /// UI (e.g. the Build button label) can stay in sync via setState.
@@ -161,6 +192,9 @@ class IslandGame extends FlameGame {
     for (final record in existingBuildings) {
       await _spawnBuildingFromRecord(record);
     }
+    for (final record in existingBoats) {
+      await _spawnBoatFromRecord(record);
+    }
 
     player = PlayerComponent(
       islandRadius: islandRadius,
@@ -197,6 +231,13 @@ class IslandGame extends FlameGame {
   void recenterOnPlayer() {
     _isFreeLooking = false;
   }
+
+  bool isOwnedByMe(int ownerId) => ownerId == userId;
+
+  /// This player's boats that exist on the backend, i.e. the ones whose
+  /// position this client is responsible for reporting.
+  Iterable<BoatComponent> get ownBoats =>
+      boats.where((b) => b.backendId != null && isOwnedByMe(b.ownerId));
 
   /// Radius of the sailable sea around the world origin - the minimap uses
   /// it as the extent of the full map.
@@ -414,6 +455,10 @@ class IslandGame extends FlameGame {
   /// next to it and hops in automatically on arrival.
   void requestBoard(BoatComponent boat) {
     if (player.boardedBoat != null) return;
+    if (!isOwnedByMe(boat.ownerId)) {
+      onNotice?.call("That's another player's boat");
+      return;
+    }
     final boardingPoint = _nearestCoastPoint(currentPlayerIsland, boat.position);
     player.moveTo(
       boardingPoint,
@@ -526,6 +571,7 @@ class IslandGame extends FlameGame {
         final port = PortComponent(
           worldPosition: worldPosition,
           islandRadius: islandRadius,
+          ownerId: userId,
           ownerColor: playerColor,
         );
         ports.add(port);
@@ -543,6 +589,7 @@ class IslandGame extends FlameGame {
         final lumberjack = LumberjackComponent(
           worldPosition: worldPosition,
           islandRadius: islandRadius,
+          ownerId: userId,
           ownerColor: playerColor,
         );
         lumberjacks.add(lumberjack);
@@ -589,14 +636,59 @@ class IslandGame extends FlameGame {
     }
   }
 
+  /// Asks the backend for a boat at [port] - it decides where the boat
+  /// spawns and charges the wood - and shows it once that succeeds.
   Future<void> buildBoatFromPort(PortComponent port) async {
-    final hostIsland = _islandAt(port.position) ?? currentPlayerIsland;
-    final offset = port.position - hostIsland.position;
-    final direction = offset.length == 0 ? Vector2(1, 0) : offset.normalized();
-    final spawn = hostIsland.position + direction * (hostIsland.radius * 1.05);
-    final boat = BoatComponent(startPosition: spawn, islandRadius: islandRadius);
+    final portId = port.backendId;
+    final request = onBoatBuildRequested;
+    if (portId == null || request == null) return;
+    final record = await request(portId);
+    if (record == null) return;
+    // The next poll may already have added it while the request was in
+    // flight.
+    if (boats.any((b) => b.backendId == record.id)) return;
+    await _spawnBoatFromRecord(record);
+  }
+
+  Future<void> _spawnBoatFromRecord(BoatRecord record) async {
+    final boat = BoatComponent(
+      startPosition: Vector2(record.x, record.y),
+      islandRadius: islandRadius,
+      ownerId: record.ownerId,
+    )..backendId = record.id;
     boats.add(boat);
     await islandWorld.add(boat);
+  }
+
+  /// Reconciles the locally-rendered boats against the backend: adds new
+  /// ones, removes deleted ones, and glides other players' boats toward
+  /// their latest reported position. Our own boats are left alone - this
+  /// client is the one moving them, and the backend only has the position
+  /// we last reported.
+  Future<void> syncBoats(List<BoatRecord> latest) async {
+    final latestById = {for (final record in latest) record.id: record};
+
+    for (final boat in boats
+        .where((b) =>
+            b.backendId != null &&
+            !latestById.containsKey(b.backendId) &&
+            player.boardedBoat != b)
+        .toList()) {
+      boats.remove(boat);
+      boat.removeFromParent();
+    }
+
+    for (final record in latest) {
+      final existing = boats.where((b) => b.backendId == record.id).firstOrNull;
+      if (existing == null) {
+        await _spawnBoatFromRecord(record);
+      } else if (!isOwnedByMe(existing.ownerId)) {
+        final target = Vector2(record.x, record.y);
+        if (target.distanceTo(existing.position) > 1) {
+          existing.moveAlongPath([target]);
+        }
+      }
+    }
   }
 
   Future<void> _spawnBuildingFromRecord(BuildingRecord record) async {
@@ -605,6 +697,7 @@ class IslandGame extends FlameGame {
         final port = PortComponent(
           worldPosition: Vector2(record.x, record.y),
           islandRadius: islandRadius,
+          ownerId: record.ownerId,
           ownerColor: record.ownerColor,
         )..backendId = record.id;
         ports.add(port);
@@ -613,6 +706,7 @@ class IslandGame extends FlameGame {
         final lumberjack = LumberjackComponent(
           worldPosition: Vector2(record.x, record.y),
           islandRadius: islandRadius,
+          ownerId: record.ownerId,
           ownerColor: record.ownerColor,
         )..backendId = record.id;
         lumberjacks.add(lumberjack);
@@ -1014,11 +1108,13 @@ class PortComponent extends PositionComponent
   /// directly for buildings loaded from the backend on startup).
   int? backendId;
 
+  final int ownerId;
   final Color ownerColor;
 
   PortComponent({
     required Vector2 worldPosition,
     required double islandRadius,
+    required this.ownerId,
     required this.ownerColor,
   }) : super(
           anchor: Anchor.center,
@@ -1059,11 +1155,13 @@ class LumberjackComponent extends PositionComponent
   /// directly for buildings loaded from the backend on startup).
   int? backendId;
 
+  final int ownerId;
   final Color ownerColor;
 
   LumberjackComponent({
     required Vector2 worldPosition,
     required double islandRadius,
+    required this.ownerId,
     required this.ownerColor,
   }) : super(
           anchor: Anchor.center,
@@ -1119,8 +1217,16 @@ class BoatComponent extends PositionComponent
   VoidCallback? _onArrived;
   bool isSelected = false;
 
-  BoatComponent({required Vector2 startPosition, required double islandRadius})
-      : _speed = islandRadius * 0.6,
+  /// The backing row on the server.
+  int? backendId;
+
+  final int ownerId;
+
+  BoatComponent({
+    required Vector2 startPosition,
+    required double islandRadius,
+    required this.ownerId,
+  })  : _speed = islandRadius * 0.6,
         super(
           anchor: Anchor.center,
           position: startPosition,

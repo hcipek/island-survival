@@ -146,6 +146,26 @@ class WorldBuildingData {
   }
 }
 
+class BoatData {
+  final int id;
+  final int ownerId;
+  final double x;
+  final double y;
+
+  BoatData({required this.id, required this.ownerId, required this.x, required this.y});
+
+  factory BoatData.fromJson(Map<String, dynamic> json) {
+    return BoatData(
+      id: json['id'] as int,
+      ownerId: json['ownerId'] as int,
+      x: (json['x'] as num).toDouble(),
+      y: (json['y'] as num).toDouble(),
+    );
+  }
+
+  BoatRecord toRecord() => BoatRecord(id: id, ownerId: ownerId, x: x, y: y);
+}
+
 class RemotePlayerData {
   final int userId;
   final String username;
@@ -284,6 +304,38 @@ class IslandApi {
   Future<void> deleteBuilding(int worldId, int id, int userId) async {
     final response = await http.delete(
       Uri.parse('$_baseUrl/api/worlds/$worldId/buildings/$id?userId=$userId'),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessage(response));
+    }
+  }
+
+  Future<List<BoatData>> fetchBoats(int worldId) async {
+    final response = await http.get(Uri.parse('$_baseUrl/api/worlds/$worldId/boats'));
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load boats: ${response.statusCode}');
+    }
+    final items = jsonDecode(response.body) as List<dynamic>;
+    return items.map((item) => BoatData.fromJson(item as Map<String, dynamic>)).toList();
+  }
+
+  Future<BoatData> createBoat(int worldId, int portId, int ownerId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/api/worlds/$worldId/boats'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'portId': portId, 'ownerId': ownerId}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessage(response));
+    }
+    return BoatData.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<void> updateBoatPosition(int worldId, int boatId, int userId, double x, double y) async {
+    final response = await http.put(
+      Uri.parse('$_baseUrl/api/worlds/$worldId/boats/$boatId/position?userId=$userId'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'x': x, 'y': y}),
     );
     if (response.statusCode != 200) {
       throw Exception(_errorMessage(response));
@@ -671,9 +723,11 @@ class _IslandScreenState extends State<IslandScreen> {
   Future<void> _bootstrap() async {
     final List<WorldIslandData> layout;
     final List<WorldBuildingData> buildings;
+    final List<BoatData> boats;
     try {
       layout = await _api.fetchWorldIslands(widget.worldId);
       buildings = await _api.fetchBuildings(widget.worldId);
+      boats = await _api.fetchBoats(widget.worldId);
     } catch (e) {
       setState(() => _error = 'Could not reach backend: $e');
       return;
@@ -694,9 +748,12 @@ class _IslandScreenState extends State<IslandScreen> {
                 type: b.type,
                 x: b.x,
                 y: b.y,
+                ownerId: b.ownerId,
                 ownerColor: b.ownerColor,
               ))
           .toList(),
+      existingBoats: boats.map((b) => b.toRecord()).toList(),
+      userId: widget.userId,
       username: widget.username,
       playerColor: widget.userColor,
     )
@@ -706,6 +763,8 @@ class _IslandScreenState extends State<IslandScreen> {
       ..onPortDestroyRequested = _destroyPortBackend
       ..onLumberjackBuildRequested = _buildLumberjack
       ..onLumberjackDestroyRequested = _destroyLumberjackBackend
+      ..onBoatBuildRequested = _buildBoat
+      ..onNotice = _showNotice
       ..onPlacementStateChanged = () => setState(() {});
 
     setState(() => _game = game);
@@ -782,6 +841,7 @@ class _IslandScreenState extends State<IslandScreen> {
                   type: b.type,
                   x: b.x,
                   y: b.y,
+                  ownerId: b.ownerId,
                   ownerColor: b.ownerColor,
                 ))
             .toList(),
@@ -789,6 +849,15 @@ class _IslandScreenState extends State<IslandScreen> {
     } catch (_) {
       // Best-effort - a stale building list for one tick isn't worth
       // surfacing an error over.
+    }
+
+    _pushOwnBoatPositions(game);
+
+    try {
+      final boats = await _api.fetchBoats(widget.worldId);
+      await game.syncBoats(boats.map((b) => b.toRecord()).toList());
+    } catch (_) {
+      // Best-effort, same reasoning as above.
     }
 
     try {
@@ -857,6 +926,49 @@ class _IslandScreenState extends State<IslandScreen> {
         ),
       ),
     );
+  }
+
+  /// Where each of our boats was when we last told the backend, so only
+  /// boats that actually moved get sent.
+  final Map<int, Vector2> _lastSentBoatPositions = {};
+
+  void _pushOwnBoatPositions(IslandGame game) {
+    for (final boat in game.ownBoats) {
+      final id = boat.backendId!;
+      final lastSent = _lastSentBoatPositions[id];
+      if (lastSent != null && lastSent.distanceTo(boat.position) < 1) continue;
+      _lastSentBoatPositions[id] = boat.position.clone();
+      unawaited(
+        _api
+            .updateBoatPosition(
+              widget.worldId,
+              id,
+              widget.userId,
+              boat.position.x,
+              boat.position.y,
+            )
+            // Forget it so the next tick retries.
+            .catchError((_) {
+              _lastSentBoatPositions.remove(id);
+            }),
+      );
+    }
+  }
+
+  Future<BoatRecord?> _buildBoat(int portId) async {
+    try {
+      final boat = await _api.createBoat(widget.worldId, portId, widget.userId);
+      await _refresh(); // wood was just spent - reflect it immediately
+      return boat.toRecord();
+    } catch (e) {
+      _showNotice('Could not build boat: $e');
+      return null;
+    }
+  }
+
+  void _showNotice(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<int?> _buildPort(Vector2 position) async {
@@ -932,20 +1044,32 @@ class _IslandScreenState extends State<IslandScreen> {
     showModalBottomSheet(
       context: context,
       builder: (sheetContext) => SafeArea(
-        child: ListTile(
-          leading: const Icon(Icons.delete_outline, color: Colors.red),
-          title: const Text('Destroy'),
-          subtitle: const Text('Remove this lumberjack (no refund)'),
-          onTap: () {
-            Navigator.pop(sheetContext);
-            _game!.destroyLumberjack(lumberjack);
-          },
-        ),
+        child: _game!.isOwnedByMe(lumberjack.ownerId)
+            ? ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text('Destroy'),
+                subtitle: const Text('Remove this lumberjack (no refund)'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _game!.destroyLumberjack(lumberjack);
+                },
+              )
+            : const _NotYoursTile(building: 'lumberjack'),
       ),
     );
   }
 
   void _showPortMenu(PortComponent port) {
+    if (!_game!.isOwnedByMe(port.ownerId)) {
+      showModalBottomSheet(
+        context: context,
+        builder: (_) => const SafeArea(child: _NotYoursTile(building: 'port')),
+      );
+      return;
+    }
+    // A port that was just placed has no backend id until the create call
+    // returns, and the server needs that id to build a boat there.
+    final isSaved = port.backendId != null;
     showModalBottomSheet(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -955,7 +1079,10 @@ class _IslandScreenState extends State<IslandScreen> {
             ListTile(
               leading: const Icon(Icons.sailing),
               title: const Text('Boat'),
-              subtitle: const Text('Build a boat at this port'),
+              subtitle: Text(
+                isSaved ? 'Build a boat at this port. Costs 10 wood.' : 'Port is still being built...',
+              ),
+              enabled: isSaved,
               onTap: () {
                 Navigator.pop(sheetContext);
                 _game!.buildBoatFromPort(port);
@@ -1074,6 +1201,22 @@ class _IslandScreenState extends State<IslandScreen> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+/// Shown instead of a building's actions when it belongs to someone else.
+class _NotYoursTile extends StatelessWidget {
+  final String building;
+
+  const _NotYoursTile({required this.building});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: const Icon(Icons.lock_outline),
+      title: Text("Another player's $building"),
+      subtitle: const Text('Only its owner can use or remove it'),
     );
   }
 }
