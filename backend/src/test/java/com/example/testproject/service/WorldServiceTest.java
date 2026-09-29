@@ -2,10 +2,13 @@ package com.example.testproject.service;
 
 import com.example.testproject.model.BuildingType;
 import com.example.testproject.model.World;
+import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
 import com.example.testproject.model.req.BuildingRequest;
+import com.example.testproject.model.req.CreateBoatRequest;
 import com.example.testproject.model.req.CreateUserRequest;
 import com.example.testproject.model.req.CreateWorldRequest;
+import com.example.testproject.model.req.UpdatePositionRequest;
 import com.example.testproject.repository.WorldRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -136,6 +139,74 @@ class WorldServiceTest {
     }
 
     @Test
+    void boatIsBuiltJustOffTheCoastNextToThePort() {
+        BuildingDto port = build(BuildingType.PORT, ON_SAND);
+
+        BoatDto boat = worldService.createBoat(worldId, new CreateBoatRequest(port.id(), aliceId));
+
+        // Port is due east of the home island's center, so the boat is too,
+        // at 1.05 * the island's radius of 600.
+        assertThat(boat.x()).isCloseTo(630, within(0.01));
+        assertThat(boat.y()).isCloseTo(0, within(0.01));
+        assertThat(boat.ownerId()).isEqualTo(aliceId);
+        assertThat(worldService.getBoats(worldId)).hasSize(1);
+    }
+
+    @Test
+    void buildingABoatSpendsWood() {
+        BuildingDto port = build(BuildingType.PORT, ON_SAND);
+
+        worldService.createBoat(worldId, new CreateBoatRequest(port.id(), aliceId));
+
+        assertThat(worldService.getState(worldId).wood()).isCloseTo(10, within(0.1));
+    }
+
+    @Test
+    void boatNeedsEnoughWood() {
+        BuildingDto port = build(BuildingType.PORT, ON_SAND);
+        setWood(5);
+
+        assertStatus(HttpStatus.CONFLICT,
+                () -> worldService.createBoat(worldId, new CreateBoatRequest(port.id(), aliceId)));
+        assertThat(worldService.getBoats(worldId)).isEmpty();
+    }
+
+    @Test
+    void boatCanOnlyBeBuiltAtYourOwnPort() {
+        BuildingDto alicesPort = build(BuildingType.PORT, ON_SAND);
+
+        assertStatus(HttpStatus.FORBIDDEN,
+                () -> worldService.createBoat(worldId, new CreateBoatRequest(alicesPort.id(), bobId)));
+    }
+
+    @Test
+    void boatCannotBeBuiltAtALumberjack() {
+        BuildingDto lumberjack = build(BuildingType.LUMBERJACK, ON_GRASS);
+
+        assertStatus(HttpStatus.NOT_FOUND,
+                () -> worldService.createBoat(worldId, new CreateBoatRequest(lumberjack.id(), aliceId)));
+    }
+
+    @Test
+    void ownerCanSailTheirBoat() {
+        BoatDto boat = buildBoatForAlice();
+
+        worldService.updateBoatPosition(worldId, boat.id(), aliceId, new UpdatePositionRequest(1000, 200));
+
+        BoatDto moved = worldService.getBoats(worldId).getFirst();
+        assertThat(moved.x()).isEqualTo(1000);
+        assertThat(moved.y()).isEqualTo(200);
+    }
+
+    @Test
+    void otherPlayersCannotSailSomeoneElsesBoat() {
+        BoatDto boat = buildBoatForAlice();
+
+        assertStatus(HttpStatus.FORBIDDEN, () -> worldService.updateBoatPosition(
+                worldId, boat.id(), bobId, new UpdatePositionRequest(1000, 200)));
+    }
+
+    @Test
     void unknownWorldIsNotFound() {
         assertStatus(HttpStatus.NOT_FOUND, () -> worldService.getState(worldId + 999));
     }
@@ -144,6 +215,11 @@ class WorldServiceTest {
     /// island's center.
     private BuildingDto build(BuildingType type, double x) {
         return worldService.createBuilding(worldId, new BuildingRequest(type, x, 0, aliceId));
+    }
+
+    private BoatDto buildBoatForAlice() {
+        BuildingDto port = build(BuildingType.PORT, ON_SAND);
+        return worldService.createBoat(worldId, new CreateBoatRequest(port.id(), aliceId));
     }
 
     private void setWood(double wood) {
