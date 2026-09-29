@@ -45,30 +45,45 @@ class BuildingRecord {
   });
 }
 
-/// A boat as stored on the backend - its owner's client reports where it
-/// is while sailing, so everyone sees it in the same place.
+/// A walk or voyage: start at [from], then visit each point of [path] in
+/// order at the mover's fixed speed. [elapsed] is how long ago it started,
+/// so someone joining mid-way can fast-forward to where it is now.
+class MovementRecord {
+  final Vector2 from;
+  final List<Vector2> path;
+  final Duration elapsed;
+
+  const MovementRecord({required this.from, required this.path, this.elapsed = Duration.zero});
+}
+
+/// A boat as stored on the backend, plus its voyage in progress if any.
 class BoatRecord {
   final int id;
   final int ownerId;
   final double x;
   final double y;
+  final MovementRecord? movement;
 
   const BoatRecord({
     required this.id,
     required this.ownerId,
     required this.x,
     required this.y,
+    this.movement,
   });
 }
 
-/// Another user's last-known position in this world, as reported by the
-/// backend - polled periodically since there's no live push channel yet.
+/// Another player in this world. [x]/[y] is where they are (or are
+/// heading, if [movement] is set); [boatId] is set while they're aboard a
+/// boat, in which case they ride along with it.
 class RemotePlayerRecord {
   final int userId;
   final String username;
   final Color color;
   final double x;
   final double y;
+  final int? boatId;
+  final MovementRecord? movement;
 
   const RemotePlayerRecord({
     required this.userId,
@@ -76,6 +91,8 @@ class RemotePlayerRecord {
     required this.color,
     required this.x,
     required this.y,
+    this.boatId,
+    this.movement,
   });
 }
 
@@ -86,6 +103,7 @@ class IslandGame extends FlameGame {
   final List<IslandLayout> islandLayout;
   final List<BuildingRecord> existingBuildings;
   final List<BoatRecord> existingBoats;
+  final List<RemotePlayerRecord> existingPlayers;
   final int userId;
   final String username;
   final Color playerColor;
@@ -97,6 +115,7 @@ class IslandGame extends FlameGame {
     required this.playerColor,
     this.existingBuildings = const [],
     this.existingBoats = const [],
+    this.existingPlayers = const [],
   });
 
   late final World islandWorld;
@@ -144,6 +163,19 @@ class IslandGame extends FlameGame {
   /// Flutter UI performs the backend call (spending wood) and returns the
   /// new boat, or null on failure.
   Future<BoatRecord?> Function(int portBackendId)? onBoatBuildRequested;
+
+  /// Called when this player starts walking, so the Flutter UI can tell the
+  /// server (which passes it on to everyone else).
+  void Function(Vector2 from, List<Vector2> path)? onLocalWalk;
+
+  /// Called when this player steps aboard one of their boats.
+  void Function(int boatId)? onLocalBoard;
+
+  /// Called when this player starts sailing the boat they're aboard.
+  void Function(int boatId, Vector2 from, List<Vector2> path)? onLocalSail;
+
+  /// Called when this player steps off their boat at [position].
+  void Function(int boatId, Vector2 position)? onLocalLand;
 
   /// Called with a short message the Flutter UI should show the player,
   /// e.g. when they try to board someone else's boat.
@@ -195,6 +227,9 @@ class IslandGame extends FlameGame {
     for (final record in existingBoats) {
       await _spawnBoatFromRecord(record);
     }
+    for (final record in existingPlayers) {
+      await _upsertRemotePlayer(record);
+    }
 
     player = PlayerComponent(
       islandRadius: islandRadius,
@@ -233,11 +268,6 @@ class IslandGame extends FlameGame {
   }
 
   bool isOwnedByMe(int ownerId) => ownerId == userId;
-
-  /// This player's boats that exist on the backend, i.e. the ones whose
-  /// position this client is responsible for reporting.
-  Iterable<BoatComponent> get ownBoats =>
-      boats.where((b) => b.backendId != null && isOwnedByMe(b.ownerId));
 
   /// Radius of the sailable sea around the world origin - the minimap uses
   /// it as the extent of the full map.
@@ -431,13 +461,13 @@ class IslandGame extends FlameGame {
         _requestLanding(boardedBoat, tappedIsland, worldPosition);
       } else {
         final destination = _clampToSea(worldPosition);
-        boardedBoat.moveAlongPath(_seaPathTo(boardedBoat.position, destination));
+        _sail(boardedBoat, _seaPathTo(boardedBoat.position, destination));
       }
       return;
     }
 
     if (tappedIsland == currentPlayerIsland) {
-      player.moveTo(tappedIsland!.clampToIsland(worldPosition));
+      _walkTo(tappedIsland!.clampToIsland(worldPosition));
     }
     // Tapping a different island while on foot, or tapping open sea without
     // being aboard a boat, does nothing - you need to sail there first.
@@ -460,13 +490,29 @@ class IslandGame extends FlameGame {
       return;
     }
     final boardingPoint = _nearestCoastPoint(currentPlayerIsland, boat.position);
-    player.moveTo(
+    _walkTo(
       boardingPoint,
       onArrived: () {
         boat.isSelected = true;
         player.boardedBoat = boat;
+        onLocalBoard?.call(boat.backendId!);
       },
     );
+  }
+
+  /// Walks this player to [target] and tells everyone else.
+  void _walkTo(Vector2 target, {VoidCallback? onArrived}) {
+    final from = player.position.clone();
+    player.moveTo(target, onArrived: onArrived);
+    onLocalWalk?.call(from, [target]);
+  }
+
+  /// Sails [boat] (which this player is aboard) along [path] and tells
+  /// everyone else.
+  void _sail(BoatComponent boat, List<Vector2> path, {VoidCallback? onArrived}) {
+    final from = boat.position.clone();
+    boat.moveAlongPath(path, onArrived: onArrived);
+    onLocalSail?.call(boat.backendId!, from, path);
   }
 
   /// Called when the player (aboard [boat]) taps a spot on [targetIsland]:
@@ -478,13 +524,15 @@ class IslandGame extends FlameGame {
     final boatDestination = targetIsland.position + direction * (targetIsland.radius * 1.05);
     final landingSpot = targetIsland.position + direction * targetIsland.radius;
 
-    boat.moveAlongPath(
+    _sail(
+      boat,
       _seaPathTo(boat.position, boatDestination),
       onArrived: () {
         boat.isSelected = false;
         player.boardedBoat = null;
         player.position = landingSpot;
         currentPlayerIsland = targetIsland;
+        onLocalLand?.call(boat.backendId!, landingSpot);
       },
     );
   }
@@ -644,10 +692,7 @@ class IslandGame extends FlameGame {
     if (portId == null || request == null) return;
     final record = await request(portId);
     if (record == null) return;
-    // The next poll may already have added it while the request was in
-    // flight.
-    if (boats.any((b) => b.backendId == record.id)) return;
-    await _spawnBoatFromRecord(record);
+    await addBoat(record);
   }
 
   Future<void> _spawnBoatFromRecord(BoatRecord record) async {
@@ -656,38 +701,71 @@ class IslandGame extends FlameGame {
       islandRadius: islandRadius,
       ownerId: record.ownerId,
     )..backendId = record.id;
+    final movement = record.movement;
+    if (movement != null) boat.follow(movement);
     boats.add(boat);
     await islandWorld.add(boat);
   }
 
-  /// Reconciles the locally-rendered boats against the backend: adds new
-  /// ones, removes deleted ones, and glides other players' boats toward
-  /// their latest reported position. Our own boats are left alone - this
-  /// client is the one moving them, and the backend only has the position
-  /// we last reported.
-  Future<void> syncBoats(List<BoatRecord> latest) async {
-    final latestById = {for (final record in latest) record.id: record};
+  BoatComponent? _boatById(int id) => boats.where((b) => b.backendId == id).firstOrNull;
 
+  /// A boat was built, by anyone. Our own new boat may already be here -
+  /// the server's event and the build call's response can arrive in either
+  /// order.
+  Future<void> addBoat(BoatRecord record) async {
+    if (_boatById(record.id) != null) return;
+    await _spawnBoatFromRecord(record);
+  }
+
+  /// Another player started sailing one of their boats.
+  void moveRemoteBoat(int boatId, MovementRecord movement) {
+    final boat = _boatById(boatId);
+    if (boat == null || isOwnedByMe(boat.ownerId)) return;
+    boat.follow(movement);
+  }
+
+  /// Brings the boats in line with a fresh snapshot (e.g. after
+  /// reconnecting). Our own boats keep their local state - this client is
+  /// the one sailing them.
+  Future<void> applyBoats(List<BoatRecord> latest) async {
+    final latestIds = latest.map((b) => b.id).toSet();
     for (final boat in boats
-        .where((b) =>
-            b.backendId != null &&
-            !latestById.containsKey(b.backendId) &&
-            player.boardedBoat != b)
+        .where((b) => !latestIds.contains(b.backendId) && player.boardedBoat != b)
         .toList()) {
       boats.remove(boat);
       boat.removeFromParent();
     }
 
     for (final record in latest) {
-      final existing = boats.where((b) => b.backendId == record.id).firstOrNull;
+      final existing = _boatById(record.id);
       if (existing == null) {
         await _spawnBoatFromRecord(record);
       } else if (!isOwnedByMe(existing.ownerId)) {
-        final target = Vector2(record.x, record.y);
-        if (target.distanceTo(existing.position) > 1) {
-          existing.moveAlongPath([target]);
+        final movement = record.movement;
+        if (movement != null) {
+          existing.follow(movement);
+        } else {
+          existing.stop();
+          existing.position = Vector2(record.x, record.y);
         }
       }
+    }
+  }
+
+  /// Re-sends what this player is doing right now, so the server (and
+  /// everyone else) catches up after a reconnect.
+  void reportCurrentActivity() {
+    final boat = player.boardedBoat;
+    if (boat != null) {
+      final id = boat.backendId!;
+      onLocalBoard?.call(id);
+      final remaining = boat.remainingPath;
+      onLocalSail?.call(id, boat.position.clone(), remaining.isEmpty ? [boat.position.clone()] : remaining);
+      return;
+    }
+    final remaining = player.remainingPath;
+    if (remaining.isNotEmpty) {
+      onLocalWalk?.call(player.position.clone(), remaining);
     }
   }
 
@@ -714,9 +792,50 @@ class IslandGame extends FlameGame {
     }
   }
 
-  /// Reconciles the locally-rendered buildings against the latest list from
-  /// the backend: adds anything built by another player since we last
-  /// checked, and removes anything someone else has since destroyed.
+  /// A building was built, by anyone. If it's one we just placed ourselves
+  /// and the build call hasn't answered yet, it's already on screen without
+  /// an id - adopt that one instead of drawing a second copy.
+  Future<void> addBuilding(BuildingRecord record) async {
+    final all = <PositionComponent>[...ports, ...lumberjacks];
+    if (all.any((b) => _backendIdOf(b) == record.id)) return;
+
+    final position = Vector2(record.x, record.y);
+    final pending = switch (record.type) {
+      BuildingType.port => ports
+          .where((p) => p.backendId == null && p.position.distanceTo(position) < 0.01)
+          .firstOrNull,
+      BuildingType.lumberjack => lumberjacks
+          .where((l) => l.backendId == null && l.position.distanceTo(position) < 0.01)
+          .firstOrNull,
+    };
+    if (pending is PortComponent) {
+      pending.backendId = record.id;
+    } else if (pending is LumberjackComponent) {
+      pending.backendId = record.id;
+    } else {
+      await _spawnBuildingFromRecord(record);
+    }
+  }
+
+  void removeBuilding(int buildingId) {
+    for (final port in ports.where((p) => p.backendId == buildingId).toList()) {
+      ports.remove(port);
+      port.removeFromParent();
+    }
+    for (final lumberjack in lumberjacks.where((l) => l.backendId == buildingId).toList()) {
+      lumberjacks.remove(lumberjack);
+      lumberjack.removeFromParent();
+    }
+  }
+
+  static int? _backendIdOf(PositionComponent building) => switch (building) {
+        PortComponent p => p.backendId,
+        LumberjackComponent l => l.backendId,
+        _ => null,
+      };
+
+  /// Brings the buildings in line with a fresh snapshot: adds anything built
+  /// since, and removes anything destroyed since.
   Future<void> syncBuildings(List<BuildingRecord> latest) async {
     final latestIds = latest.map((b) => b.id).toSet();
 
@@ -735,43 +854,81 @@ class IslandGame extends FlameGame {
       lumberjack.removeFromParent();
     }
 
-    final knownIds = <int>{
-      for (final p in ports) if (p.backendId != null) p.backendId!,
-      for (final l in lumberjacks) if (l.backendId != null) l.backendId!,
-    };
     for (final record in latest) {
-      if (knownIds.contains(record.id)) continue;
-      await _spawnBuildingFromRecord(record);
+      await addBuilding(record);
     }
   }
 
-  /// Reconciles the locally-rendered other-player markers against the
-  /// latest polled positions: adds/updates/removes as players come and go
-  /// or move around.
-  Future<void> syncRemotePlayers(List<RemotePlayerRecord> latest) async {
-    final seenIds = <int>{};
-    for (final record in latest) {
-      seenIds.add(record.userId);
-      final existing = _remotePlayers[record.userId];
-      if (existing != null) {
-        // Glide toward the newly-reported position instead of snapping to
-        // it, so movement reads as continuous walking rather than a
-        // teleport every time a poll lands.
-        existing.moveTo(Vector2(record.x, record.y));
-      } else {
-        final remote = PlayerComponent(
-          islandRadius: islandRadius,
-          username: record.username,
-          ownerColor: record.color,
-        )..position = Vector2(record.x, record.y);
-        _remotePlayers[record.userId] = remote;
-        await islandWorld.add(remote);
-      }
+  Future<void> _upsertRemotePlayer(RemotePlayerRecord record) async {
+    if (record.userId == userId) return;
+    var remote = _remotePlayers[record.userId];
+    if (remote == null) {
+      remote = PlayerComponent(
+        islandRadius: islandRadius,
+        username: record.username,
+        ownerColor: record.color,
+      );
+      _remotePlayers[record.userId] = remote;
+      await islandWorld.add(remote);
     }
 
-    final staleIds = _remotePlayers.keys.where((id) => !seenIds.contains(id)).toList();
-    for (final id in staleIds) {
-      _remotePlayers.remove(id)?.removeFromParent();
+    remote
+      ..boardedBoat = null
+      ..stop()
+      ..position = Vector2(record.x, record.y);
+    final boatId = record.boatId;
+    final movement = record.movement;
+    if (boatId != null) {
+      remote.boardedBoat = _boatById(boatId);
+    } else if (movement != null) {
+      remote.follow(movement);
+    }
+  }
+
+  /// Another player entered the world.
+  Future<void> addRemotePlayer(RemotePlayerRecord record) => _upsertRemotePlayer(record);
+
+  /// Another player left the world.
+  void removeRemotePlayer(int userId) {
+    _remotePlayers.remove(userId)?.removeFromParent();
+  }
+
+  /// Another player started walking.
+  void moveRemotePlayer(int userId, MovementRecord movement) {
+    final remote = _remotePlayers[userId];
+    if (remote == null) return;
+    remote.boardedBoat = null;
+    remote.follow(movement);
+  }
+
+  /// Another player stepped aboard one of their boats - from now on they
+  /// ride along with it, exactly like our own player does.
+  void boardRemotePlayer(int userId, int boatId) {
+    final remote = _remotePlayers[userId];
+    final boat = _boatById(boatId);
+    if (remote == null || boat == null) return;
+    remote
+      ..stop()
+      ..boardedBoat = boat;
+  }
+
+  /// Another player stepped off their boat onto an island.
+  void landRemotePlayer(int userId, Vector2 position) {
+    final remote = _remotePlayers[userId];
+    if (remote == null) return;
+    remote
+      ..boardedBoat = null
+      ..position = position;
+  }
+
+  /// Brings the other players in line with a fresh snapshot.
+  Future<void> applyRemotePlayers(List<RemotePlayerRecord> latest) async {
+    final latestIds = latest.map((p) => p.userId).toSet();
+    for (final id in _remotePlayers.keys.where((id) => !latestIds.contains(id)).toList()) {
+      removeRemotePlayer(id);
+    }
+    for (final record in latest) {
+      await _upsertRemotePlayer(record);
     }
   }
 }
@@ -985,10 +1142,69 @@ class TreeComponent extends PositionComponent {
   }
 }
 
-class PlayerComponent extends PositionComponent {
-  final double _speed;
-  Vector2? _target;
+/// Moves a component along a list of waypoints at a fixed [speed]. Shared
+/// by players and boats, so every client that's given the same path puts
+/// them in the same place at the same time - which is what lets the server
+/// send one "walk this path" message instead of a stream of positions.
+mixin PathFollower on PositionComponent {
+  double get speed;
+
+  final List<Vector2> _waypoints = [];
   VoidCallback? _onArrived;
+
+  /// Waypoints still ahead, e.g. to re-send after a reconnect.
+  List<Vector2> get remainingPath => [for (final point in _waypoints) point.clone()];
+
+  /// Follows [path] in order, calling [onArrived] once the last point is
+  /// reached.
+  void followPath(List<Vector2> path, {VoidCallback? onArrived}) {
+    _waypoints
+      ..clear()
+      ..addAll(path.map((point) => point.clone()));
+    _onArrived = onArrived;
+  }
+
+  /// Jumps to where [movement] started and follows it, skipping ahead by
+  /// however long ago it began - so late joiners see it where it is now.
+  void follow(MovementRecord movement) {
+    position = movement.from;
+    followPath(movement.path);
+    advanceAlongPath(movement.elapsed.inMicroseconds / Duration.microsecondsPerSecond);
+  }
+
+  void stop() {
+    _waypoints.clear();
+    _onArrived = null;
+  }
+
+  /// Moves [seconds] worth of distance along the path, across as many
+  /// waypoints as that covers.
+  void advanceAlongPath(double seconds) {
+    if (_waypoints.isEmpty) return;
+    var budget = speed * seconds;
+    while (_waypoints.isNotEmpty && budget > 0) {
+      final target = _waypoints.first;
+      final distance = position.distanceTo(target);
+      if (distance <= budget) {
+        position = target;
+        budget -= distance;
+        _waypoints.removeAt(0);
+      } else {
+        position += (target - position).normalized() * budget;
+        budget = 0;
+      }
+    }
+    if (_waypoints.isEmpty) {
+      final callback = _onArrived;
+      _onArrived = null;
+      callback?.call();
+    }
+  }
+}
+
+class PlayerComponent extends PositionComponent with PathFollower {
+  @override
+  final double speed;
 
   /// The boat currently carrying the player, if any. While set, the player
   /// rides along with the boat instead of moving independently.
@@ -1001,7 +1217,7 @@ class PlayerComponent extends PositionComponent {
     required double islandRadius,
     required this.username,
     required this.ownerColor,
-  })  : _speed = islandRadius * 0.5,
+  })  : speed = islandRadius * 0.5,
         super(
           anchor: Anchor.bottomCenter,
           position: Vector2.zero(),
@@ -1010,8 +1226,7 @@ class PlayerComponent extends PositionComponent {
         );
 
   void moveTo(Vector2 worldTarget, {VoidCallback? onArrived}) {
-    _target = worldTarget;
-    _onArrived = onArrived;
+    followPath([worldTarget], onArrived: onArrived);
   }
 
   @override
@@ -1020,26 +1235,11 @@ class PlayerComponent extends PositionComponent {
 
     final boat = boardedBoat;
     if (boat != null) {
-      _target = null;
-      _onArrived = null;
+      stop();
       position = boat.position + Vector2(0, -boat.size.y * 0.15);
       return;
     }
-
-    final target = _target;
-    if (target == null) return;
-    final delta = target - position;
-    final distance = delta.length;
-    final step = _speed * dt;
-    if (distance <= step) {
-      position = target;
-      _target = null;
-      final callback = _onArrived;
-      _onArrived = null;
-      callback?.call();
-    } else {
-      position += delta.normalized() * step;
-    }
+    advanceAlongPath(dt);
   }
 
   @override
@@ -1211,10 +1411,9 @@ class LumberjackComponent extends PositionComponent
 }
 
 class BoatComponent extends PositionComponent
-    with TapCallbacks, HasGameReference<IslandGame> {
-  final double _speed;
-  final List<Vector2> _waypoints = [];
-  VoidCallback? _onArrived;
+    with TapCallbacks, HasGameReference<IslandGame>, PathFollower {
+  @override
+  final double speed;
   bool isSelected = false;
 
   /// The backing row on the server.
@@ -1226,7 +1425,7 @@ class BoatComponent extends PositionComponent
     required Vector2 startPosition,
     required double islandRadius,
     required this.ownerId,
-  })  : _speed = islandRadius * 0.6,
+  })  : speed = islandRadius * 0.6,
         super(
           anchor: Anchor.center,
           position: startPosition,
@@ -1237,32 +1436,13 @@ class BoatComponent extends PositionComponent
   /// Follows a sequence of waypoints in order (see [IslandGame._seaPathTo]),
   /// calling [onArrived] once the final one is reached.
   void moveAlongPath(List<Vector2> waypoints, {VoidCallback? onArrived}) {
-    _waypoints
-      ..clear()
-      ..addAll(waypoints);
-    _onArrived = onArrived;
+    followPath(waypoints, onArrived: onArrived);
   }
 
   @override
   void update(double dt) {
     super.update(dt);
-    if (_waypoints.isEmpty) return;
-
-    final target = _waypoints.first;
-    final delta = target - position;
-    final distance = delta.length;
-    final step = _speed * dt;
-    if (distance <= step) {
-      position = target;
-      _waypoints.removeAt(0);
-      if (_waypoints.isEmpty) {
-        final callback = _onArrived;
-        _onArrived = null;
-        callback?.call();
-      }
-    } else {
-      position += delta.normalized() * step;
-    }
+    advanceAlongPath(dt);
   }
 
   @override

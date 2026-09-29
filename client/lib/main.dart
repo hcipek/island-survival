@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import 'island_game.dart';
+import 'live_connection.dart';
 import 'minimap.dart';
 
 String _buildingTypeToJson(BuildingType type) {
@@ -114,82 +115,61 @@ class WorldIslandData {
   }
 }
 
-class WorldBuildingData {
-  final int id;
-  final BuildingType type;
-  final double x;
-  final double y;
-  final int ownerId;
-  final String ownerName;
-  final Color ownerColor;
+// Parsers for what the server sends over the world socket (and the REST
+// build calls), straight into the game's record types.
 
-  WorldBuildingData({
-    required this.id,
-    required this.type,
-    required this.x,
-    required this.y,
-    required this.ownerId,
-    required this.ownerName,
-    required this.ownerColor,
-  });
-
-  factory WorldBuildingData.fromJson(Map<String, dynamic> json) {
-    return WorldBuildingData(
-      id: json['id'] as int,
-      type: _buildingTypeFromJson(json['type'] as String),
-      x: (json['x'] as num).toDouble(),
-      y: (json['y'] as num).toDouble(),
-      ownerId: json['ownerId'] as int,
-      ownerName: json['ownerName'] as String,
-      ownerColor: _colorFromHex(json['ownerColor'] as String),
-    );
-  }
+BuildingRecord _buildingFromJson(Map<String, dynamic> json) {
+  return BuildingRecord(
+    id: json['id'] as int,
+    type: _buildingTypeFromJson(json['type'] as String),
+    x: (json['x'] as num).toDouble(),
+    y: (json['y'] as num).toDouble(),
+    ownerId: json['ownerId'] as int,
+    ownerColor: _colorFromHex(json['ownerColor'] as String),
+  );
 }
 
-class BoatData {
-  final int id;
-  final int ownerId;
-  final double x;
-  final double y;
-
-  BoatData({required this.id, required this.ownerId, required this.x, required this.y});
-
-  factory BoatData.fromJson(Map<String, dynamic> json) {
-    return BoatData(
-      id: json['id'] as int,
-      ownerId: json['ownerId'] as int,
-      x: (json['x'] as num).toDouble(),
-      y: (json['y'] as num).toDouble(),
-    );
-  }
-
-  BoatRecord toRecord() => BoatRecord(id: id, ownerId: ownerId, x: x, y: y);
+BoatRecord _boatFromJson(Map<String, dynamic> json) {
+  return BoatRecord(
+    id: json['id'] as int,
+    ownerId: json['ownerId'] as int,
+    x: (json['x'] as num).toDouble(),
+    y: (json['y'] as num).toDouble(),
+    movement: _movementFromJson(json['movement'] as Map<String, dynamic>?),
+  );
 }
 
-class RemotePlayerData {
-  final int userId;
-  final String username;
-  final Color color;
-  final double x;
-  final double y;
+RemotePlayerRecord _playerFromJson(Map<String, dynamic> json) {
+  return RemotePlayerRecord(
+    userId: json['userId'] as int,
+    username: json['username'] as String,
+    color: _colorFromHex(json['color'] as String),
+    x: (json['x'] as num).toDouble(),
+    y: (json['y'] as num).toDouble(),
+    boatId: json['boatId'] as int?,
+    movement: _movementFromJson(json['movement'] as Map<String, dynamic>?),
+  );
+}
 
-  RemotePlayerData({
-    required this.userId,
-    required this.username,
-    required this.color,
-    required this.x,
-    required this.y,
-  });
+MovementRecord? _movementFromJson(Map<String, dynamic>? json) {
+  if (json == null) return null;
+  return MovementRecord(
+    from: _pointFromJson(json['from'] as Map<String, dynamic>),
+    path: (json['path'] as List<dynamic>)
+        .map((point) => _pointFromJson(point as Map<String, dynamic>))
+        .toList(),
+    elapsed: Duration(milliseconds: (json['elapsedMs'] as num?)?.toInt() ?? 0),
+  );
+}
 
-  factory RemotePlayerData.fromJson(Map<String, dynamic> json) {
-    return RemotePlayerData(
-      userId: json['userId'] as int,
-      username: json['username'] as String,
-      color: _colorFromHex(json['color'] as String),
-      x: (json['x'] as num).toDouble(),
-      y: (json['y'] as num).toDouble(),
-    );
-  }
+Vector2 _pointFromJson(Map<String, dynamic> json) {
+  return Vector2((json['x'] as num).toDouble(), (json['y'] as num).toDouble());
+}
+
+Map<String, double> _pointToJson(Vector2 point) => {'x': point.x, 'y': point.y};
+
+List<T> _listFromJson<T>(Object? json, T Function(Map<String, dynamic>) parse) {
+  return (json as List<dynamic>).map((item) => parse(item as Map<String, dynamic>)).toList();
 }
 
 class IslandApi {
@@ -197,6 +177,10 @@ class IslandApi {
   // both from localhost and from another device on the LAN (e.g. a phone
   // opening http://<mac-lan-ip>:5173) without needing a hardcoded address.
   static final _baseUrl = 'http://${Uri.base.host}:8080';
+
+  /// The live connection for [userId] in [worldId] - see [LiveConnection].
+  Uri liveUrl(int worldId, int userId) =>
+      Uri.parse('ws://${Uri.base.host}:8080/ws/worlds/$worldId?userId=$userId');
 
   Future<List<UserData>> fetchUsers() async {
     final response = await http.get(Uri.parse('$_baseUrl/api/users'));
@@ -258,25 +242,6 @@ class IslandApi {
         .toList();
   }
 
-  Future<List<WorldBuildingData>> fetchBuildings(int worldId) async {
-    final response = await http.get(Uri.parse('$_baseUrl/api/worlds/$worldId/buildings'));
-    if (response.statusCode != 200) {
-      throw Exception('Failed to load buildings: ${response.statusCode}');
-    }
-    final items = jsonDecode(response.body) as List<dynamic>;
-    return items
-        .map((item) => WorldBuildingData.fromJson(item as Map<String, dynamic>))
-        .toList();
-  }
-
-  Future<IslandState> fetchIsland(int worldId) async {
-    final response = await http.get(Uri.parse('$_baseUrl/api/worlds/$worldId/state'));
-    if (response.statusCode != 200) {
-      throw Exception('Failed to load island: ${response.statusCode}');
-    }
-    return IslandState.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
-  }
-
   Future<int> createBuilding(
     int worldId,
     BuildingType type,
@@ -310,16 +275,7 @@ class IslandApi {
     }
   }
 
-  Future<List<BoatData>> fetchBoats(int worldId) async {
-    final response = await http.get(Uri.parse('$_baseUrl/api/worlds/$worldId/boats'));
-    if (response.statusCode != 200) {
-      throw Exception('Failed to load boats: ${response.statusCode}');
-    }
-    final items = jsonDecode(response.body) as List<dynamic>;
-    return items.map((item) => BoatData.fromJson(item as Map<String, dynamic>)).toList();
-  }
-
-  Future<BoatData> createBoat(int worldId, int portId, int ownerId) async {
+  Future<BoatRecord> createBoat(int worldId, int portId, int ownerId) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/api/worlds/$worldId/boats'),
       headers: {'Content-Type': 'application/json'},
@@ -328,42 +284,7 @@ class IslandApi {
     if (response.statusCode != 200) {
       throw Exception(_errorMessage(response));
     }
-    return BoatData.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
-  }
-
-  Future<void> updateBoatPosition(int worldId, int boatId, int userId, double x, double y) async {
-    final response = await http.put(
-      Uri.parse('$_baseUrl/api/worlds/$worldId/boats/$boatId/position?userId=$userId'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'x': x, 'y': y}),
-    );
-    if (response.statusCode != 200) {
-      throw Exception(_errorMessage(response));
-    }
-  }
-
-  Future<void> updatePlayerPosition(int worldId, int userId, double x, double y) async {
-    final response = await http.put(
-      Uri.parse('$_baseUrl/api/worlds/$worldId/players/$userId/position'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'x': x, 'y': y}),
-    );
-    if (response.statusCode != 200) {
-      throw Exception(_errorMessage(response));
-    }
-  }
-
-  Future<List<RemotePlayerData>> fetchPlayers(int worldId, int excludeUserId) async {
-    final response = await http.get(
-      Uri.parse('$_baseUrl/api/worlds/$worldId/players?excludeUserId=$excludeUserId'),
-    );
-    if (response.statusCode != 200) {
-      throw Exception('Failed to load players: ${response.statusCode}');
-    }
-    final items = jsonDecode(response.body) as List<dynamic>;
-    return items
-        .map((item) => RemotePlayerData.fromJson(item as Map<String, dynamic>))
-        .toList();
+    return _boatFromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   String _errorMessage(http.Response response) {
@@ -708,11 +629,25 @@ class IslandScreen extends StatefulWidget {
 class _IslandScreenState extends State<IslandScreen> {
   final IslandApi _api = IslandApi();
   IslandGame? _game;
-  Timer? _pollTimer;
-  Timer? _coordTimer;
-  IslandState? _island;
+  LiveConnection? _live;
+  List<IslandLayout>? _layout;
+  Timer? _hudTimer;
   String? _error;
   bool _showMapBorder = false;
+  bool _connected = false;
+
+  /// Latest wood numbers from the server, and when they arrived - the HUD
+  /// counts up from there by itself between updates.
+  IslandState? _island;
+  DateTime _islandReceivedAt = DateTime.now();
+
+  /// Events are applied strictly one after another, since applying one can
+  /// take a moment (e.g. spawning components) and order matters.
+  Future<void> _eventQueue = Future.value();
+
+  /// Events that arrive while the game is still loading, applied once it's
+  /// ready.
+  final List<Map<String, dynamic>> _eventsBeforeLoad = [];
 
   @override
   void initState() {
@@ -721,38 +656,63 @@ class _IslandScreenState extends State<IslandScreen> {
   }
 
   Future<void> _bootstrap() async {
-    final List<WorldIslandData> layout;
-    final List<WorldBuildingData> buildings;
-    final List<BoatData> boats;
+    // Islands never change, so they come from a plain request; everything
+    // else arrives over the live connection, starting with a snapshot.
     try {
-      layout = await _api.fetchWorldIslands(widget.worldId);
-      buildings = await _api.fetchBuildings(widget.worldId);
-      boats = await _api.fetchBoats(widget.worldId);
-    } catch (e) {
-      setState(() => _error = 'Could not reach backend: $e');
-      return;
-    }
-
-    final game = IslandGame(
-      islandLayout: layout
+      final islands = await _api.fetchWorldIslands(widget.worldId);
+      _layout = islands
           .map((island) => IslandLayout(
                 centerX: island.centerX,
                 centerY: island.centerY,
                 radius: island.radius,
                 isHome: island.isHome,
               ))
-          .toList(),
-      existingBuildings: buildings
-          .map((b) => BuildingRecord(
-                id: b.id,
-                type: b.type,
-                x: b.x,
-                y: b.y,
-                ownerId: b.ownerId,
-                ownerColor: b.ownerColor,
-              ))
-          .toList(),
-      existingBoats: boats.map((b) => b.toRecord()).toList(),
+          .toList();
+    } catch (e) {
+      setState(() => _error = 'Could not reach backend: $e');
+      return;
+    }
+
+    _live = LiveConnection(
+      url: _api.liveUrl(widget.worldId, widget.userId),
+      onEvent: _onLiveEvent,
+      onStatusChanged: (connected) {
+        if (mounted) setState(() => _connected = connected);
+      },
+    )..connect();
+
+    // Your own position, and the wood counter, change every frame without
+    // any message from the server - redraw the HUD regularly.
+    _hudTimer = Timer.periodic(const Duration(milliseconds: 200), (_) => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _live?.close();
+    _hudTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onLiveEvent(Map<String, dynamic> event) {
+    final game = _game;
+    if (game == null) {
+      if (event['type'] == 'snapshot') _startGame(event);
+      return;
+    }
+    if (!game.isLoaded) {
+      _eventsBeforeLoad.add(event);
+      return;
+    }
+    _eventQueue = _eventQueue.then((_) => _applyEvent(game, event)).catchError((_) {});
+  }
+
+  void _startGame(Map<String, dynamic> snapshot) {
+    _setIslandState(snapshot['state']);
+    final game = IslandGame(
+      islandLayout: _layout!,
+      existingBuildings: _listFromJson(snapshot['buildings'], _buildingFromJson),
+      existingBoats: _listFromJson(snapshot['boats'], _boatFromJson),
+      existingPlayers: _listFromJson(snapshot['players'], _playerFromJson),
       userId: widget.userId,
       username: widget.username,
       playerColor: widget.userColor,
@@ -765,117 +725,109 @@ class _IslandScreenState extends State<IslandScreen> {
       ..onLumberjackDestroyRequested = _destroyLumberjackBackend
       ..onBoatBuildRequested = _buildBoat
       ..onNotice = _showNotice
-      ..onPlacementStateChanged = () => setState(() {});
+      // Closures in a cascade need parentheses - otherwise the next `..`
+      // would apply to the closure's result instead of to the game.
+      ..onPlacementStateChanged = (() => setState(() {}))
+      ..onLocalWalk = ((from, path) => _send({
+            'type': 'move',
+            'from': _pointToJson(from),
+            'path': path.map(_pointToJson).toList(),
+          }))
+      ..onLocalBoard = ((boatId) => _send({'type': 'board', 'boatId': boatId}))
+      ..onLocalSail = ((boatId, from, path) => _send({
+            'type': 'sail',
+            'boatId': boatId,
+            'from': _pointToJson(from),
+            'path': path.map(_pointToJson).toList(),
+          }))
+      ..onLocalLand = ((boatId, position) => _send({
+            'type': 'land',
+            'boatId': boatId,
+            'position': _pointToJson(position),
+          }));
 
     setState(() => _game = game);
 
-    _refresh();
-    // Kept fairly tight since this tick is also what drives other players'
-    // and buildings' visibility - combined with the movement interpolation
-    // in IslandGame.syncRemotePlayers, this is what makes other players'
-    // motion look smooth rather than a teleport every couple of seconds.
-    _pollTimer = Timer.periodic(const Duration(milliseconds: 800), (_) => _refresh());
-    // Player position is purely local Flame state (not from the backend), so
-    // it needs its own faster-ticking refresh to feel live while moving.
-    _coordTimer = Timer.periodic(const Duration(milliseconds: 200), (_) => setState(() {}));
+    game.loaded.then((_) {
+      _join(game);
+      for (final event in _eventsBeforeLoad) {
+        _eventQueue = _eventQueue.then((_) => _applyEvent(game, event)).catchError((_) {});
+      }
+      _eventsBeforeLoad.clear();
+    });
   }
 
-  @override
-  void dispose() {
-    _pollTimer?.cancel();
-    _coordTimer?.cancel();
-    super.dispose();
+  void _send(Map<String, dynamic> message) {
+    _live?.send(message);
   }
 
-  bool _refreshing = false;
+  /// Makes our player visible to everyone else, including whatever they're
+  /// in the middle of doing (after a reconnect).
+  void _join(IslandGame game) {
+    _send({'type': 'join', 'position': _pointToJson(game.player.position)});
+    game.reportCurrentActivity();
+  }
 
-  Future<void> _refresh() async {
-    // Guards against overlapping ticks if a request happens to run long -
-    // otherwise two in-flight polls could resolve out of order.
-    if (_refreshing) return;
-    _refreshing = true;
-    try {
-      await _refreshOnce();
-    } finally {
-      _refreshing = false;
+  Future<void> _applyEvent(IslandGame game, Map<String, dynamic> event) async {
+    switch (event['type']) {
+      case 'snapshot':
+        // We reconnected: catch up on everything, then rejoin.
+        _setIslandState(event['state']);
+        await game.syncBuildings(_listFromJson(event['buildings'], _buildingFromJson));
+        await game.applyBoats(_listFromJson(event['boats'], _boatFromJson));
+        await game.applyRemotePlayers(_listFromJson(event['players'], _playerFromJson));
+        _join(game);
+      case 'state':
+        _setIslandState(event['state']);
+      case 'buildingAdded':
+        await game.addBuilding(_buildingFromJson(event['building'] as Map<String, dynamic>));
+      case 'buildingRemoved':
+        game.removeBuilding(event['buildingId'] as int);
+      case 'boatAdded':
+        await game.addBoat(_boatFromJson(event['boat'] as Map<String, dynamic>));
+      case 'playerJoined':
+        await game.addRemotePlayer(_playerFromJson(event['player'] as Map<String, dynamic>));
+      case 'playerLeft':
+        game.removeRemotePlayer(event['userId'] as int);
+      case 'playerMoved':
+        game.moveRemotePlayer(
+          event['userId'] as int,
+          _movementFromJson(event['movement'] as Map<String, dynamic>)!,
+        );
+      case 'playerBoarded':
+        game.boardRemotePlayer(event['userId'] as int, event['boatId'] as int);
+      case 'boatMoved':
+        game.moveRemoteBoat(
+          event['boatId'] as int,
+          _movementFromJson(event['movement'] as Map<String, dynamic>)!,
+        );
+      case 'playerLanded':
+        game.landRemotePlayer(
+          event['userId'] as int,
+          _pointFromJson(event['position'] as Map<String, dynamic>),
+        );
+      case 'error':
+        _showNotice(event['message'] as String? ?? 'Something went wrong');
     }
   }
 
-  Future<void> _refreshOnce() async {
-    try {
-      final island = await _api.fetchIsland(widget.worldId);
-      setState(() {
-        _island = island;
-        _error = null;
-      });
-    } catch (e) {
-      setState(() {
-        _error = 'Could not reach backend: $e';
-      });
-      return;
-    }
+  void _setIslandState(Object? json) {
+    if (json is! Map<String, dynamic>) return;
+    setState(() {
+      _island = IslandState.fromJson(json);
+      _islandReceivedAt = DateTime.now();
+    });
+  }
 
-    final game = _game;
-    if (game == null) return;
-
-    // Push our own position and pull everyone else's, plus anything built
-    // since the last tick - best-effort, since a single missed tick just
-    // means a couple of seconds of staleness rather than a broken game.
-    unawaited(
-      _api
-          .updatePlayerPosition(
-            widget.worldId,
-            widget.userId,
-            game.player.position.x,
-            game.player.position.y,
-          )
-          .catchError((_) {}),
+  /// [_island] with the wood produced since it arrived added on.
+  IslandState? get _currentIsland {
+    final island = _island;
+    if (island == null) return null;
+    final seconds = DateTime.now().difference(_islandReceivedAt).inMilliseconds / 1000;
+    return IslandState(
+      wood: island.wood + island.woodPerSecond * seconds,
+      woodPerSecond: island.woodPerSecond,
     );
-
-    try {
-      final buildings = await _api.fetchBuildings(widget.worldId);
-      await game.syncBuildings(
-        buildings
-            .map((b) => BuildingRecord(
-                  id: b.id,
-                  type: b.type,
-                  x: b.x,
-                  y: b.y,
-                  ownerId: b.ownerId,
-                  ownerColor: b.ownerColor,
-                ))
-            .toList(),
-      );
-    } catch (_) {
-      // Best-effort - a stale building list for one tick isn't worth
-      // surfacing an error over.
-    }
-
-    _pushOwnBoatPositions(game);
-
-    try {
-      final boats = await _api.fetchBoats(widget.worldId);
-      await game.syncBoats(boats.map((b) => b.toRecord()).toList());
-    } catch (_) {
-      // Best-effort, same reasoning as above.
-    }
-
-    try {
-      final players = await _api.fetchPlayers(widget.worldId, widget.userId);
-      await game.syncRemotePlayers(
-        players
-            .map((p) => RemotePlayerRecord(
-                  userId: p.userId,
-                  username: p.username,
-                  color: p.color,
-                  x: p.x,
-                  y: p.y,
-                ))
-            .toList(),
-      );
-    } catch (_) {
-      // Best-effort, same reasoning as above.
-    }
   }
 
   void _showBuildMenu() {
@@ -928,38 +880,10 @@ class _IslandScreenState extends State<IslandScreen> {
     );
   }
 
-  /// Where each of our boats was when we last told the backend, so only
-  /// boats that actually moved get sent.
-  final Map<int, Vector2> _lastSentBoatPositions = {};
-
-  void _pushOwnBoatPositions(IslandGame game) {
-    for (final boat in game.ownBoats) {
-      final id = boat.backendId!;
-      final lastSent = _lastSentBoatPositions[id];
-      if (lastSent != null && lastSent.distanceTo(boat.position) < 1) continue;
-      _lastSentBoatPositions[id] = boat.position.clone();
-      unawaited(
-        _api
-            .updateBoatPosition(
-              widget.worldId,
-              id,
-              widget.userId,
-              boat.position.x,
-              boat.position.y,
-            )
-            // Forget it so the next tick retries.
-            .catchError((_) {
-              _lastSentBoatPositions.remove(id);
-            }),
-      );
-    }
-  }
-
   Future<BoatRecord?> _buildBoat(int portId) async {
     try {
-      final boat = await _api.createBoat(widget.worldId, portId, widget.userId);
-      await _refresh(); // wood was just spent - reflect it immediately
-      return boat.toRecord();
+      // The server pushes the new wood total (and the boat) to everyone.
+      return await _api.createBoat(widget.worldId, portId, widget.userId);
     } catch (e) {
       _showNotice('Could not build boat: $e');
       return null;
@@ -1013,7 +937,6 @@ class _IslandScreenState extends State<IslandScreen> {
         position.y,
         widget.userId,
       );
-      await _refresh(); // wood was just spent - reflect it immediately
       return id;
     } catch (e) {
       if (mounted) {
@@ -1028,7 +951,6 @@ class _IslandScreenState extends State<IslandScreen> {
   Future<bool> _destroyLumberjackBackend(int id) async {
     try {
       await _api.deleteBuilding(widget.worldId, id, widget.userId);
-      await _refresh(); // production rate just changed - reflect it immediately
       return true;
     } catch (e) {
       if (mounted) {
@@ -1162,11 +1084,18 @@ class _IslandScreenState extends State<IslandScreen> {
                       ),
                     ),
                   )
-                else if (_island != null)
+                else if (_currentIsland != null)
                   Positioned(
                     top: 16,
                     left: 16,
-                    child: _WoodHud(island: _island!),
+                    child: _WoodHud(island: _currentIsland!),
+                  ),
+                if (!_connected)
+                  const Positioned(
+                    top: 16,
+                    left: 0,
+                    right: 0,
+                    child: Center(child: _ReconnectingBanner()),
                   ),
                 if (game.isLoaded)
                   Positioned(
@@ -1201,6 +1130,33 @@ class _IslandScreenState extends State<IslandScreen> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+/// Shown while the live connection to the server is down.
+class _ReconnectingBanner extends StatelessWidget {
+  const _ReconnectingBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: Colors.orange.shade800,
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            ),
+            SizedBox(width: 8),
+            Text('Reconnecting...', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+      ),
     );
   }
 }

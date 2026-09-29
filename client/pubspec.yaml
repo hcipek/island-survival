@@ -37,6 +37,7 @@ dependencies:
 
   http: ^1.2.2
   flame: ^1.38.2
+  web_socket_channel: ^3.0.3
 
 dev_dependencies:
   flutter_test:
