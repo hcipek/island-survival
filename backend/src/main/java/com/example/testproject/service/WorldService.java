@@ -16,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,10 +38,17 @@ public class WorldService {
     private static final double MIN_GAP_BETWEEN_ISLANDS = 300;
     private static final int MAX_PLACEMENT_ATTEMPTS = 30;
 
-    static final double LUMBERJACK_COST = 20;
+    static final int LUMBERJACK_COST = 20;
+
+    /// A lumberjack slowly fills its own storage, which its owner comes to
+    /// collect from - 0.1/s fills it in a little over 8 minutes.
+    private static final double LUMBERJACK_WOOD_PER_SECOND = 0.1;
+    private static final double LUMBERJACK_CAPACITY = 50;
+    /// How close you have to be standing to collect.
+    private static final double COLLECT_RANGE = 120;
     /// Per player, per world.
     private static final long MAX_LUMBERJACKS = 1;
-    private static final double BOAT_COST = 10;
+    private static final int BOAT_COST = 10;
 
     /// How far off the coast (as a multiple of the island radius) a new boat
     /// is placed - matches where the client used to spawn boats locally.
@@ -52,7 +60,8 @@ public class WorldService {
     private final UserRepository userRepository;
     private final PlayerPresenceRepository playerPresenceRepository;
     private final BoatRepository boatRepository;
-    private final PlayerResourcesService playerResourcesService;
+    private final PlayerVitalsService playerVitalsService;
+    private final InventoryService inventoryService;
     private final ResourceNodeService resourceNodeService;
     private final WorldSessionRegistry sessionRegistry;
     private final Random random = new Random();
@@ -64,7 +73,8 @@ public class WorldService {
             UserRepository userRepository,
             PlayerPresenceRepository playerPresenceRepository,
             BoatRepository boatRepository,
-            PlayerResourcesService playerResourcesService,
+            PlayerVitalsService playerVitalsService,
+            InventoryService inventoryService,
             ResourceNodeService resourceNodeService,
             WorldSessionRegistry sessionRegistry
     ) {
@@ -74,7 +84,8 @@ public class WorldService {
         this.userRepository = userRepository;
         this.playerPresenceRepository = playerPresenceRepository;
         this.boatRepository = boatRepository;
-        this.playerResourcesService = playerResourcesService;
+        this.playerVitalsService = playerVitalsService;
+        this.inventoryService = inventoryService;
         this.resourceNodeService = resourceNodeService;
         this.sessionRegistry = sessionRegistry;
     }
@@ -102,7 +113,8 @@ public class WorldService {
         boatRepository.deleteAll(boatRepository.findAllByWorldId(worldId));
         worldIslandRepository.deleteAll(worldIslandRepository.findAllByWorldId(worldId));
         playerPresenceRepository.deleteAll(playerPresenceRepository.findAllByWorldId(worldId));
-        playerResourcesService.deleteAllIn(worldId);
+        playerVitalsService.deleteAllIn(worldId);
+        inventoryService.deleteAllIn(worldId);
         resourceNodeService.deleteAllIn(worldId);
         worldRepository.deleteById(worldId);
     }
@@ -127,16 +139,16 @@ public class WorldService {
         return islands.stream().map(IslandLocationDto::from).toList();
     }
 
-    /// [userId]'s resources in [worldId], with everything produced so far
-    /// collected.
+    /// How [userId] is doing in [worldId].
     public PlayerStateDto getState(long worldId, long userId) {
         getWorldOrThrow(worldId);
-        return playerResourcesService.stateOf(worldId, userId);
+        return playerVitalsService.stateOf(worldId, userId);
     }
 
     public List<BuildingDto> getBuildings(long worldId) {
         getWorldOrThrow(worldId);
         return buildingRepository.findAllByWorldId(worldId).stream()
+                .map(this::settleProduction)
                 .map(this::toBuildingDto)
                 .toList();
     }
@@ -149,8 +161,7 @@ public class WorldService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Building type is required");
         }
         requireValidPlacement(worldId, request);
-        PlayerResources resources = playerResourcesService.collected(worldId, owner.getId());
-        playerResourcesService.requireNotStarving(resources);
+        playerVitalsService.requireNotStarving(worldId, owner.getId());
 
         if (request.type() == BuildingType.LUMBERJACK) {
             long existing = buildingRepository.countByWorldIdAndOwnerIdAndType(
@@ -161,16 +172,16 @@ public class WorldService {
                         "Only " + MAX_LUMBERJACKS + " lumberjack per player for now"
                 );
             }
-            playerResourcesService.spendWood(resources, LUMBERJACK_COST, "a lumberjack");
+            inventoryService.remove(worldId, owner.getId(), ItemType.WOOD, LUMBERJACK_COST, "to build a lumberjack");
         }
 
-        Building building = buildingRepository.save(
-                new Building(worldId, owner.getId(), request.type(), request.x(), request.y())
-        );
+        Building newBuilding = new Building(worldId, owner.getId(), request.type(), request.x(), request.y());
+        newBuilding.setProducedUntil(Instant.now());
+        Building building = buildingRepository.save(newBuilding);
         BuildingDto dto = toBuildingDto(building, owner);
         sessionRegistry.broadcast(worldId, LiveEvents.buildingAdded(dto));
         if (request.type() == BuildingType.LUMBERJACK) {
-            playerResourcesService.sendStateTo(resources);
+            inventoryService.sendTo(worldId, owner.getId());
         }
         return dto;
     }
@@ -184,19 +195,13 @@ public class WorldService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the owner can remove this building");
         }
 
-        // Settle wood earned up to now before the building (and any
-        // production it contributes) disappears.
-        PlayerResources resources = playerResourcesService.collected(worldId, userId);
-
+        // Whatever a lumberjack was holding goes with it - collect first.
         buildingRepository.delete(building);
         sessionRegistry.broadcast(worldId, LiveEvents.buildingRemoved(buildingId));
-        if (building.getType() == BuildingType.LUMBERJACK) {
-            playerResourcesService.sendStateTo(resources);
-        }
     }
 
     /// Builds a boat just off the coast next to one of the requester's own
-    /// ports, paid for from their wood.
+    /// ports, paid for with wood from their inventory.
     public BoatDto createBoat(long worldId, CreateBoatRequest request) {
         getWorldOrThrow(worldId);
         Building port = buildingRepository.findById(request.portId())
@@ -206,9 +211,8 @@ public class WorldService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can only build boats at your own port");
         }
 
-        PlayerResources resources = playerResourcesService.collected(worldId, request.ownerId());
-        playerResourcesService.requireNotStarving(resources);
-        playerResourcesService.spendWood(resources, BOAT_COST, "a boat");
+        playerVitalsService.requireNotStarving(worldId, request.ownerId());
+        inventoryService.remove(worldId, request.ownerId(), ItemType.WOOD, BOAT_COST, "to build a boat");
 
         WorldIsland island = nearestIsland(worldId, port.getX(), port.getY());
         double dx = port.getX() - island.getCenterX();
@@ -225,8 +229,59 @@ public class WorldService {
 
         BoatDto boat = BoatDto.from(boatRepository.save(new Boat(worldId, port.getOwnerId(), x, y)));
         sessionRegistry.broadcast(worldId, LiveEvents.boatAdded(boat));
-        playerResourcesService.sendStateTo(resources);
+        inventoryService.sendTo(worldId, request.ownerId());
         return boat;
+    }
+
+    /// [userId], standing at ([x], [y]), takes the whole wood of their
+    /// lumberjack into their inventory - or as much as fits. Returns the
+    /// lumberjack as it is now.
+    public synchronized BuildingDto collectFromLumberjack(long worldId, long userId, Long buildingId, double x, double y) {
+        if (buildingId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "buildingId is required");
+        }
+        Building lumberjack = buildingRepository.findById(buildingId)
+                .filter(b -> b.getWorldId().equals(worldId) && b.getType() == BuildingType.LUMBERJACK)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Lumberjack not found"));
+        if (lumberjack.getOwnerId() != userId) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "That's another player's lumberjack");
+        }
+        if (Math.hypot(lumberjack.getX() - x, lumberjack.getY() - y) > COLLECT_RANGE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Walk up to it first");
+        }
+        settleProduction(lumberjack);
+
+        int ready = (int) Math.floor(lumberjack.getStoredWood());
+        if (ready == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Nothing to collect yet");
+        }
+        int taken = Math.min(ready, inventoryService.roomFor(worldId, userId, ItemType.WOOD));
+        if (taken == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Your bag is full");
+        }
+        inventoryService.add(worldId, userId, ItemType.WOOD, taken);
+        lumberjack.setStoredWood(lumberjack.getStoredWood() - taken);
+        buildingRepository.save(lumberjack);
+
+        BuildingDto dto = toBuildingDto(lumberjack);
+        sessionRegistry.broadcast(worldId, LiveEvents.buildingUpdated(dto));
+        inventoryService.sendTo(worldId, userId);
+        return dto;
+    }
+
+    /// Adds what a lumberjack produced since last time, up to its capacity.
+    private Building settleProduction(Building building) {
+        if (building.getType() != BuildingType.LUMBERJACK) {
+            return building;
+        }
+        Instant now = Instant.now();
+        if (building.getProducedUntil() != null) {
+            double seconds = Duration.between(building.getProducedUntil(), now).toMillis() / 1000.0;
+            building.setStoredWood(Math.min(
+                    LUMBERJACK_CAPACITY, building.getStoredWood() + seconds * LUMBERJACK_WOOD_PER_SECOND));
+        }
+        building.setProducedUntil(now);
+        return buildingRepository.save(building);
     }
 
     private WorldIsland nearestIsland(long worldId, double x, double y) {
@@ -268,6 +323,7 @@ public class WorldService {
     private BuildingDto toBuildingDto(Building building, User owner) {
         String ownerName = owner != null ? owner.getName() : "Unknown";
         String ownerColor = owner != null ? owner.getColor() : "#9E9E9E";
+        boolean lumberjack = building.getType() == BuildingType.LUMBERJACK;
         return new BuildingDto(
                 building.getId(),
                 building.getType(),
@@ -275,7 +331,10 @@ public class WorldService {
                 building.getY(),
                 building.getOwnerId(),
                 ownerName,
-                ownerColor
+                ownerColor,
+                building.getStoredWood(),
+                lumberjack ? LUMBERJACK_WOOD_PER_SECOND : 0,
+                lumberjack ? LUMBERJACK_CAPACITY : 0
         );
     }
 

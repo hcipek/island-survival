@@ -56,6 +56,12 @@ class BuildingRecord {
   final int ownerId;
   final Color ownerColor;
 
+  /// For a lumberjack: the wood it's holding (as of when this record was
+  /// received), how fast that grows, and how much it can hold.
+  final double storedWood;
+  final double woodPerSecond;
+  final double woodCapacity;
+
   const BuildingRecord({
     required this.id,
     required this.type,
@@ -63,6 +69,9 @@ class BuildingRecord {
     required this.y,
     required this.ownerId,
     required this.ownerColor,
+    this.storedWood = 0,
+    this.woodPerSecond = 0,
+    this.woodCapacity = 0,
   });
 }
 
@@ -204,6 +213,10 @@ class IslandGame extends FlameGame {
   /// Called when this player has finished gathering from a node, so the
   /// Flutter UI can ask the server for what it gives.
   void Function(int nodeId)? onLocalGather;
+
+  /// Called when this player has walked up to their lumberjack to collect
+  /// its wood.
+  void Function(int buildingId)? onLocalCollect;
 
   /// Called with a short message the Flutter UI should show the player,
   /// e.g. when they try to board someone else's boat.
@@ -361,6 +374,31 @@ class IslandGame extends FlameGame {
       _gatheringFrom = node;
       _gatherElapsed = 0;
     });
+  }
+
+  /// Walks to [lumberjack] (one of ours) and collects its wood once there.
+  void requestCollect(LumberjackComponent lumberjack) {
+    final id = lumberjack.backendId;
+    if (id == null) return;
+    if (player.boardedBoat != null) {
+      onNotice?.call('Land on the island first');
+      return;
+    }
+    if (_islandAt(lumberjack.position) != currentPlayerIsland) {
+      onNotice?.call('Sail over to that island first');
+      return;
+    }
+    final offset = player.position - lumberjack.position;
+    final direction = offset.length == 0 ? Vector2(0, 1) : offset.normalized();
+    final spot = currentPlayerIsland.clampToIsland(lumberjack.position + direction * 70);
+    _walkTo(spot, onArrived: () => onLocalCollect?.call(id));
+  }
+
+  /// A building changed on the server, e.g. a lumberjack's wood was taken.
+  void updateBuilding(BuildingRecord record) {
+    for (final lumberjack in lumberjacks.where((l) => l.backendId == record.id)) {
+      lumberjack.applyStorage(record);
+    }
   }
 
   /// Someone (maybe us) gathered from a node; it's bare for [regrowsIn].
@@ -914,7 +952,9 @@ class IslandGame extends FlameGame {
           islandRadius: islandRadius,
           ownerId: record.ownerId,
           ownerColor: record.ownerColor,
-        )..backendId = record.id;
+        )
+          ..backendId = record.id
+          ..applyStorage(record);
         lumberjacks.add(lumberjack);
         await islandWorld.add(lumberjack);
     }
@@ -939,7 +979,9 @@ class IslandGame extends FlameGame {
     if (pending is PortComponent) {
       pending.backendId = record.id;
     } else if (pending is LumberjackComponent) {
-      pending.backendId = record.id;
+      pending
+        ..backendId = record.id
+        ..applyStorage(record);
     } else {
       await _spawnBuildingFromRecord(record);
     }
@@ -1594,6 +1636,26 @@ class LumberjackComponent extends PositionComponent
   final int ownerId;
   final Color ownerColor;
 
+  double _storedWood = 0;
+  double _woodPerSecond = 0;
+  double _woodCapacity = 0;
+  DateTime _storedAt = DateTime.now();
+
+  void applyStorage(BuildingRecord record) {
+    _storedWood = record.storedWood;
+    _woodPerSecond = record.woodPerSecond;
+    _woodCapacity = record.woodCapacity;
+    _storedAt = DateTime.now();
+  }
+
+  /// The wood it's holding right now, counting up from the last update.
+  double get storedWood {
+    final seconds = DateTime.now().difference(_storedAt).inMilliseconds / 1000;
+    return min(_woodCapacity, _storedWood + _woodPerSecond * seconds);
+  }
+
+  double get woodCapacity => _woodCapacity;
+
   LumberjackComponent({
     required Vector2 worldPosition,
     required double islandRadius,
@@ -1635,7 +1697,31 @@ class LumberjackComponent extends PositionComponent
       canvas.drawCircle(center, logRadius * 0.55, logEndPaint);
     }
 
+    if (game.isOwnedByMe(ownerId)) _renderReadyBadge(canvas);
+
     _drawOwnerFlag(canvas, size, ownerColor);
+  }
+
+  /// On your own lumberjack: how much wood is ready to collect.
+  void _renderReadyBadge(Canvas canvas) {
+    final ready = storedWood.floor();
+    if (ready < 1) return;
+    final full = ready >= _woodCapacity;
+    final builder = ParagraphBuilder(ParagraphStyle(fontWeight: FontWeight.bold))
+      ..pushStyle(TextStyle(color: const Color(0xFFFFFFFF), fontSize: size.y * 0.16, fontWeight: FontWeight.bold))
+      ..addText(full ? '$ready full' : '$ready');
+    final paragraph = builder.build()..layout(const ParagraphConstraints(width: double.infinity));
+    final textWidth = paragraph.maxIntrinsicWidth;
+    final badge = Rect.fromCenter(
+      center: Offset(size.x * 0.4, -size.y * 0.12),
+      width: textWidth + size.x * 0.16,
+      height: paragraph.height + size.y * 0.04,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(badge, Radius.circular(badge.height / 2)),
+      Paint()..color = full ? const Color(0xFFE65100) : const Color(0xFF5D4037),
+    );
+    canvas.drawParagraph(paragraph, Offset(badge.left + size.x * 0.08, badge.top + size.y * 0.02));
   }
 
   @override

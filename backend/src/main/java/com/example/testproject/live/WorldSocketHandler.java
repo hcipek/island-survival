@@ -56,7 +56,11 @@ public class WorldSocketHandler extends TextWebSocketHandler {
                 case "sail" -> liveWorldService.sail(session, msg.boatId(), msg.from(), msg.path());
                 case "land" -> liveWorldService.land(session, msg.boatId(), msg.position());
                 case "gather" -> liveWorldService.gather(session, msg.nodeId());
-                case "eat" -> liveWorldService.eat(session);
+                case "select" -> liveWorldService.select(session, msg.slot());
+                case "moveItem" -> liveWorldService.moveItem(session, msg.fromSlot(), msg.toSlot());
+                case "discard" -> liveWorldService.discard(session, msg.slot());
+                case "use" -> liveWorldService.use(session);
+                case "collect" -> liveWorldService.collect(session, msg.buildingId());
                 default -> registry.send(session, LiveEvents.error("Unknown message type: " + type));
             }
         } catch (ResponseStatusException e) {

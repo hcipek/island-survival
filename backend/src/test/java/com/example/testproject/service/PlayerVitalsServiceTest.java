@@ -1,7 +1,8 @@
 package com.example.testproject.service;
 
 import com.example.testproject.model.BuildingType;
-import com.example.testproject.model.PlayerResources;
+import com.example.testproject.model.ItemType;
+import com.example.testproject.model.PlayerVitals;
 import com.example.testproject.model.ResourceNode;
 import com.example.testproject.model.ResourceNodeType;
 import com.example.testproject.model.dto.BuildingDto;
@@ -10,7 +11,7 @@ import com.example.testproject.model.req.BuildingRequest;
 import com.example.testproject.model.req.CreateBoatRequest;
 import com.example.testproject.model.req.CreateUserRequest;
 import com.example.testproject.model.req.CreateWorldRequest;
-import com.example.testproject.repository.PlayerResourcesRepository;
+import com.example.testproject.repository.PlayerVitalsRepository;
 import com.example.testproject.repository.ResourceNodeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,16 +27,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
-/// Hunger and eating. (Wood is covered in WorldServiceTest.)
+/// Hunger, eating and starving.
 @SpringBootTest
 @Transactional
-class PlayerResourcesServiceTest {
+class PlayerVitalsServiceTest {
 
     @Autowired
-    private PlayerResourcesService playerResourcesService;
+    private PlayerVitalsService playerVitalsService;
 
     @Autowired
-    private PlayerResourcesRepository playerResourcesRepository;
+    private PlayerVitalsRepository playerVitalsRepository;
 
     @Autowired
     private WorldService worldService;
@@ -48,6 +49,9 @@ class PlayerResourcesServiceTest {
 
     @Autowired
     private ResourceNodeRepository resourceNodeRepository;
+
+    @Autowired
+    private InventoryService inventoryService;
 
     private long worldId;
     private long aliceId;
@@ -63,13 +67,12 @@ class PlayerResourcesServiceTest {
         PlayerStateDto state = state();
 
         assertThat(state.hunger()).isEqualTo(100);
-        assertThat(state.food()).isZero();
         assertThat(state.hungerDrainPerSecond()).isZero();
     }
 
     @Test
     void hungerDropsWhileYouAreInTheWorld() {
-        playerResourcesService.playerEntered(worldId, aliceId);
+        playerVitalsService.playerEntered(worldId, aliceId);
         pretendHungerLastSettledSecondsAgo(90);
 
         // 15 minutes from full to empty: 90 seconds is a tenth of that.
@@ -79,14 +82,10 @@ class PlayerResourcesServiceTest {
 
     @Test
     void hungerPausesWhileYouAreAway() {
-        playerResourcesService.playerEntered(worldId, aliceId);
+        playerVitalsService.playerEntered(worldId, aliceId);
         pretendHungerLastSettledSecondsAgo(90);
-        playerResourcesService.playerLeft(worldId, aliceId);
+        playerVitalsService.playerLeft(worldId, aliceId);
         double whenLeaving = state().hunger();
-
-        PlayerResources resources = resources();
-        resources.setLastCollectedAt(Instant.now().minusSeconds(3600));
-        playerResourcesRepository.save(resources);
 
         assertThat(state().hunger()).isEqualTo(whenLeaving);
         assertThat(state().hungerDrainPerSecond()).isZero();
@@ -94,17 +93,17 @@ class PlayerResourcesServiceTest {
 
     @Test
     void timeAwayDoesNotCountWhenYouComeBack() {
-        playerResourcesService.playerEntered(worldId, aliceId);
-        playerResourcesService.playerLeft(worldId, aliceId);
+        playerVitalsService.playerEntered(worldId, aliceId);
+        playerVitalsService.playerLeft(worldId, aliceId);
 
-        playerResourcesService.playerEntered(worldId, aliceId);
+        playerVitalsService.playerEntered(worldId, aliceId);
 
         assertThat(state().hunger()).isCloseTo(100, within(0.1));
     }
 
     @Test
     void hungerNeverGoesBelowZero() {
-        playerResourcesService.playerEntered(worldId, aliceId);
+        playerVitalsService.playerEntered(worldId, aliceId);
         pretendHungerLastSettledSecondsAgo(10_000);
 
         assertThat(state().hunger()).isZero();
@@ -112,38 +111,36 @@ class PlayerResourcesServiceTest {
     }
 
     @Test
-    void eatingUsesOneFoodAndFillsYouUp() {
-        setFoodAndHunger(3, 50);
+    void aBerryFillsYouUp() {
+        setHunger(50);
 
-        playerResourcesService.eat(worldId, aliceId);
+        playerVitalsService.eatBerry(worldId, aliceId);
 
-        assertThat(state().food()).isEqualTo(2);
         assertThat(state().hunger()).isEqualTo(65);
     }
 
     @Test
     void eatingNeverGoesAboveFull() {
-        setFoodAndHunger(1, 95);
+        setHunger(95);
 
-        playerResourcesService.eat(worldId, aliceId);
+        playerVitalsService.eatBerry(worldId, aliceId);
 
         assertThat(state().hunger()).isEqualTo(100);
     }
 
     @Test
-    void youCannotEatWithoutFoodOrWhenFull() {
-        setFoodAndHunger(0, 50);
-        assertStatus(HttpStatus.CONFLICT, () -> playerResourcesService.eat(worldId, aliceId));
+    void youCannotEatWhenFull() {
+        setHunger(100);
 
-        setFoodAndHunger(5, 100);
-        assertStatus(HttpStatus.CONFLICT, () -> playerResourcesService.eat(worldId, aliceId));
+        assertStatus(HttpStatus.CONFLICT, () -> playerVitalsService.requireHungry(worldId, aliceId));
     }
 
     @Test
     void starvingPlayersCannotBuild() {
         BuildingDto port = worldService.createBuilding(
                 worldId, new BuildingRequest(BuildingType.PORT, 550, 0, aliceId));
-        setFoodAndHunger(0, 0);
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 50);
+        setHunger(0);
 
         assertStatus(HttpStatus.CONFLICT, () -> worldService.createBuilding(
                 worldId, new BuildingRequest(BuildingType.LUMBERJACK, 100, 0, aliceId)));
@@ -153,7 +150,7 @@ class PlayerResourcesServiceTest {
 
     @Test
     void starvingPlayersCanStillPickBerriesButNotSticks() {
-        setFoodAndHunger(0, 0);
+        setHunger(0);
         ResourceNode sticks = first(ResourceNodeType.STICKS);
         ResourceNode bush = first(ResourceNodeType.BERRY_BUSH);
 
@@ -161,29 +158,29 @@ class PlayerResourcesServiceTest {
                 () -> resourceNodeService.gather(worldId, aliceId, sticks.getId(), sticks.getX(), sticks.getY()));
         resourceNodeService.gather(worldId, aliceId, bush.getId(), bush.getX(), bush.getY());
 
-        assertThat(state().food()).isEqualTo(3);
+        assertThat(inventoryService.count(worldId, aliceId, ItemType.BERRY)).isEqualTo(3);
+        assertThat(inventoryService.count(worldId, aliceId, ItemType.STICK)).isZero();
     }
 
     private PlayerStateDto state() {
-        return playerResourcesService.stateOf(worldId, aliceId);
+        return playerVitalsService.stateOf(worldId, aliceId);
     }
 
-    private PlayerResources resources() {
+    private PlayerVitals vitals() {
         state(); // creates them if needed
-        return playerResourcesRepository.findByWorldIdAndUserId(worldId, aliceId).orElseThrow();
+        return playerVitalsRepository.findByWorldIdAndUserId(worldId, aliceId).orElseThrow();
     }
 
-    private void setFoodAndHunger(double food, double hunger) {
-        PlayerResources resources = resources();
-        resources.setFood(food);
-        resources.setHunger(hunger);
-        playerResourcesRepository.save(resources);
+    private void setHunger(double hunger) {
+        PlayerVitals vitals = vitals();
+        vitals.setHunger(hunger);
+        playerVitalsRepository.save(vitals);
     }
 
     private void pretendHungerLastSettledSecondsAgo(long seconds) {
-        PlayerResources resources = resources();
-        resources.setHungerSettledAt(Instant.now().minusSeconds(seconds));
-        playerResourcesRepository.save(resources);
+        PlayerVitals vitals = vitals();
+        vitals.setHungerSettledAt(Instant.now().minusSeconds(seconds));
+        playerVitalsRepository.save(vitals);
     }
 
     private ResourceNode first(ResourceNodeType type) {

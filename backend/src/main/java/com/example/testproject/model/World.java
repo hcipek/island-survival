@@ -8,7 +8,7 @@ import jakarta.persistence.Id;
 import java.time.Instant;
 
 /// A single independent save: its own island layout and buildings, and each
-/// player's resources there (see [PlayerResources]). Players pick or create
+/// player's resources there (see [PlayerVitals]). Players pick or create
 /// one of these on the welcome screen.
 @Entity
 public class World {

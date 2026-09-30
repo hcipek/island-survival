@@ -1,6 +1,7 @@
 package com.example.testproject.live;
 
 import com.example.testproject.model.BuildingType;
+import com.example.testproject.model.ItemType;
 import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
 import com.example.testproject.model.req.BuildingRequest;
@@ -8,7 +9,10 @@ import com.example.testproject.model.req.CreateBoatRequest;
 import com.example.testproject.model.req.CreateUserRequest;
 import com.example.testproject.model.req.CreateWorldRequest;
 import com.example.testproject.repository.BoatRepository;
+import com.example.testproject.repository.BuildingRepository;
+import com.example.testproject.repository.PlayerVitalsRepository;
 import com.example.testproject.repository.WorldRepository;
+import com.example.testproject.service.InventoryService;
 import com.example.testproject.service.UserService;
 import com.example.testproject.service.WorldService;
 import org.junit.jupiter.api.AfterEach;
@@ -66,6 +70,15 @@ class LiveWorldTest {
     @Autowired
     private WorldRepository worldRepository;
 
+    @Autowired
+    private InventoryService inventoryService;
+
+    @Autowired
+    private BuildingRepository buildingRepository;
+
+    @Autowired
+    private PlayerVitalsRepository playerVitalsRepository;
+
     private final List<TestClient> clients = new ArrayList<>();
     private long worldId;
     private long aliceId;
@@ -96,7 +109,8 @@ class LiveWorldTest {
         assertThat(list(snapshot, "buildings")).hasSize(1);
         assertThat(list(snapshot, "boats")).isEmpty();
         assertThat(list(snapshot, "players")).isEmpty();
-        assertThat(number(map(snapshot, "state"), "wood")).isEqualTo(20);
+        assertThat(number(map(snapshot, "state"), "hunger")).isEqualTo(100);
+        assertThat(list(map(snapshot, "inventory"), "slots")).isEmpty(); // everyone starts empty-handed
         assertThat(list(snapshot, "nodes")).isNotEmpty()
                 .allSatisfy(node -> assertThat(number(node, "regrowsInMs")).isZero());
     }
@@ -194,7 +208,8 @@ class LiveWorldTest {
     }
 
     @Test
-    void buildingsArePushedToEveryoneButWoodOnlyToItsOwner() throws Exception {
+    void buildingsArePushedToEveryoneButTheCostOnlyToItsOwner() throws Exception {
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 25);
         TestClient alice = connect(aliceId);
         alice.expect("snapshot");
         TestClient bob = connect(bobId);
@@ -202,13 +217,38 @@ class LiveWorldTest {
 
         worldService.createBuilding(worldId, new BuildingRequest(BuildingType.LUMBERJACK, 100, 0, aliceId));
 
-        assertThat(map(alice.expect("buildingAdded"), "building").get("type")).isEqualTo("LUMBERJACK");
-        Map<String, Object> state = map(alice.expect("state"), "state");
-        assertThat(number(state, "wood")).isCloseTo(0, within(0.1));
-        assertThat(number(state, "woodPerSecond")).isEqualTo(0.5);
+        Map<String, Object> lumberjack = map(alice.expect("buildingAdded"), "building");
+        assertThat(lumberjack.get("type")).isEqualTo("LUMBERJACK");
+        assertThat(number(lumberjack, "woodPerSecond")).isEqualTo(0.1);
+        assertThat(number(list(map(alice.expect("inventory"), "inventory"), "slots").getFirst(), "quantity"))
+                .isEqualTo(5);
 
         assertThat(map(bob.expect("buildingAdded"), "building").get("type")).isEqualTo("LUMBERJACK");
-        bob.expectNothing(); // Alice's wood is none of Bob's business
+        bob.expectNothing(); // Alice's inventory is none of Bob's business
+    }
+
+    @Test
+    void collectingFromYourLumberjackIsSeenByEveryone() throws Exception {
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 20);
+        BuildingDto lumberjack = worldService.createBuilding(
+                worldId, new BuildingRequest(BuildingType.LUMBERJACK, 100, 0, aliceId));
+        var building = buildingRepository.findById(lumberjack.id()).orElseThrow();
+        building.setProducedUntil(java.time.Instant.now().minusSeconds(100));
+        buildingRepository.save(building);
+        TestClient bob = connectAndJoin(bobId);
+        TestClient alice = connect(aliceId);
+        alice.expect("snapshot");
+        alice.send(Map.of("type", "join", "position", point(130, 0)));
+        alice.expect("state");
+        bob.expect("playerJoined");
+
+        alice.send(Map.of("type", "collect", "buildingId", lumberjack.id()));
+
+        assertThat(number(map(bob.expect("buildingUpdated"), "building"), "storedWood")).isCloseTo(0, within(0.1));
+        alice.expect("buildingUpdated");
+        Map<String, Object> slot = list(map(alice.expect("inventory"), "inventory"), "slots").getFirst();
+        assertThat(slot.get("item")).isEqualTo("WOOD");
+        assertThat(number(slot, "quantity")).isEqualTo(10);
     }
 
     @Test
@@ -227,7 +267,9 @@ class LiveWorldTest {
         assertThat(number(depleted, "nodeId")).isEqualTo(number(bush, "id"));
         assertThat(number(depleted, "regrowsInMs")).isPositive();
         alice.expect("nodeDepleted");
-        assertThat(number(map(alice.expect("state"), "state"), "food")).isEqualTo(3);
+        Map<String, Object> slot = list(map(alice.expect("inventory"), "inventory"), "slots").getFirst();
+        assertThat(slot.get("item")).isEqualTo("BERRY");
+        assertThat(number(slot, "quantity")).isEqualTo(3);
         bob.expectNothing();
     }
 
@@ -245,7 +287,7 @@ class LiveWorldTest {
 
         assertThat(number(bob.expect("nodeRemoved"), "nodeId")).isEqualTo(number(sticks, "id"));
         alice.expect("nodeRemoved");
-        alice.expect("state");
+        alice.expect("inventory");
 
         worldTicker.tickActiveWorlds(1.0);
 
@@ -305,15 +347,46 @@ class LiveWorldTest {
     }
 
     @Test
-    void eatingUsesFoodAndIsOnlyToldToYou() throws Exception {
+    void youEatTheBerryYouAreHolding() throws Exception {
+        inventoryService.add(worldId, aliceId, ItemType.BERRY, 3);
         TestClient bob = connectAndJoin(bobId);
         TestClient alice = connectAndJoin(aliceId);
         bob.expect("playerJoined");
+        var vitals = playerVitalsRepository.findByWorldIdAndUserId(worldId, aliceId).orElseThrow();
+        vitals.setHunger(50);
+        playerVitalsRepository.save(vitals);
 
-        alice.send(Map.of("type", "eat"));
+        alice.send(Map.of("type", "use"));
 
-        assertThat(alice.expect("error").get("message")).isEqualTo("You have no food - pick some berries");
+        assertThat(number(map(alice.expect("state"), "state"), "hunger")).isCloseTo(65, within(0.1));
+        assertThat(number(list(map(alice.expect("inventory"), "inventory"), "slots").getFirst(), "quantity"))
+                .isEqualTo(2);
         bob.expectNothing();
+    }
+
+    @Test
+    void youCanOnlyEatWhatYouAreHolding() throws Exception {
+        inventoryService.add(worldId, aliceId, ItemType.BERRY, 3); // lands in slot 0
+        TestClient alice = connectAndJoin(aliceId);
+
+        alice.send(Map.of("type", "select", "slot", 1));
+        assertThat(number(map(alice.expect("inventory"), "inventory"), "selectedSlot")).isEqualTo(1);
+        alice.send(Map.of("type", "use"));
+
+        assertThat(alice.expect("error").get("message")).isEqualTo("You're not holding anything");
+    }
+
+    @Test
+    void rearrangingAndThrowingAwayItems() throws Exception {
+        inventoryService.add(worldId, aliceId, ItemType.STICK, 5); // slot 0
+        TestClient alice = connectAndJoin(aliceId);
+
+        alice.send(Map.of("type", "moveItem", "fromSlot", 0, "toSlot", 15));
+        Map<String, Object> moved = list(map(alice.expect("inventory"), "inventory"), "slots").getFirst();
+        assertThat(number(moved, "slot")).isEqualTo(15);
+
+        alice.send(Map.of("type", "discard", "slot", 15));
+        assertThat(list(map(alice.expect("inventory"), "inventory"), "slots")).isEmpty();
     }
 
     @Test
@@ -336,6 +409,7 @@ class LiveWorldTest {
     }
 
     private BoatDto boatForAlice() {
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 10);
         BuildingDto port = worldService.createBuilding(
                 worldId, new BuildingRequest(BuildingType.PORT, number(ON_SAND, "x"), 0, aliceId));
         return worldService.createBoat(worldId, new CreateBoatRequest(port.id(), aliceId));

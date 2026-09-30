@@ -4,8 +4,10 @@ import 'dart:math';
 
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
+import 'inventory.dart';
 import 'island_game.dart';
 import 'live_connection.dart';
 import 'minimap.dart';
@@ -79,13 +81,10 @@ class WorldData {
   }
 }
 
-/// This player's own resources in the current world.
+/// How this player is doing in the current world. (What they carry is in
+/// their [InventoryState].)
 class PlayerState {
   static const double maxHunger = 100;
-
-  final double wood;
-  final double woodPerSecond;
-  final double food;
 
   /// 100 is full, 0 is starving.
   final double hunger;
@@ -93,22 +92,13 @@ class PlayerState {
   /// How fast [hunger] is dropping - zero while not in the world.
   final double hungerDrainPerSecond;
 
-  PlayerState({
-    required this.wood,
-    required this.woodPerSecond,
-    required this.food,
-    required this.hunger,
-    required this.hungerDrainPerSecond,
-  });
+  PlayerState({required this.hunger, required this.hungerDrainPerSecond});
 
   bool get isStarving => hunger <= 0;
-  bool get canEat => food >= 1 && hunger < maxHunger;
+  bool get isFull => hunger >= maxHunger;
 
   factory PlayerState.fromJson(Map<String, dynamic> json) {
     return PlayerState(
-      wood: (json['wood'] as num).toDouble(),
-      woodPerSecond: (json['woodPerSecond'] as num).toDouble(),
-      food: (json['food'] as num?)?.toDouble() ?? 0,
       hunger: (json['hunger'] as num?)?.toDouble() ?? maxHunger,
       hungerDrainPerSecond: (json['hungerDrainPerSecond'] as num?)?.toDouble() ?? 0,
     );
@@ -149,6 +139,9 @@ BuildingRecord _buildingFromJson(Map<String, dynamic> json) {
     y: (json['y'] as num).toDouble(),
     ownerId: json['ownerId'] as int,
     ownerColor: _colorFromHex(json['ownerColor'] as String),
+    storedWood: (json['storedWood'] as num?)?.toDouble() ?? 0,
+    woodPerSecond: (json['woodPerSecond'] as num?)?.toDouble() ?? 0,
+    woodCapacity: (json['woodCapacity'] as num?)?.toDouble() ?? 0,
   );
 }
 
@@ -679,6 +672,10 @@ class _IslandScreenState extends State<IslandScreen> {
   PlayerState? _island;
   DateTime _islandReceivedAt = DateTime.now();
 
+  /// The player's inventory, shared with the bag sheet so it stays up to
+  /// date while open.
+  final ValueNotifier<InventoryState> _inventory = ValueNotifier(InventoryState.empty);
+
   /// Events are applied strictly one after another, since applying one can
   /// take a moment (e.g. spawning components) and order matters.
   Future<void> _eventQueue = Future.value();
@@ -690,6 +687,7 @@ class _IslandScreenState extends State<IslandScreen> {
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
     _bootstrap();
   }
 
@@ -733,7 +731,56 @@ class _IslandScreenState extends State<IslandScreen> {
   void dispose() {
     _live?.close();
     _hudTimer?.cancel();
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    _inventory.dispose();
     super.dispose();
+  }
+
+  /// 1-9 and 0 pick a quick-access slot, E uses what you're holding.
+  bool _onKey(KeyEvent event) {
+    if (event is! KeyDownEvent || _game == null) return false;
+    final character = event.character;
+    if (character != null && character.length == 1) {
+      final digit = int.tryParse(character);
+      if (digit != null) {
+        _selectSlot(digit == 0 ? 9 : digit - 1);
+        return true;
+      }
+      if (character.toLowerCase() == 'e') {
+        _useHeld();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _selectSlot(int slot) {
+    _inventory.value = _inventory.value.withSelected(slot);
+    _send({'type': 'select', 'slot': slot});
+  }
+
+  void _useHeld() {
+    final held = _inventory.value.held;
+    if (held == null) return;
+    if (held.item == ItemType.berry) {
+      if (_currentIsland?.isFull ?? false) {
+        _showNotice("You're not hungry");
+        return;
+      }
+      _send({'type': 'use'});
+    }
+  }
+
+  void _openBag() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => BagSheet(
+        inventory: _inventory,
+        onMove: (from, to) => _send({'type': 'moveItem', 'fromSlot': from, 'toSlot': to}),
+        onDiscard: (slot) => _send({'type': 'discard', 'slot': slot}),
+      ),
+    );
   }
 
   void _onLiveEvent(Map<String, dynamic> event) {
@@ -751,6 +798,7 @@ class _IslandScreenState extends State<IslandScreen> {
 
   void _startGame(Map<String, dynamic> snapshot) {
     _setPlayerState(snapshot['state']);
+    _setInventory(snapshot['inventory']);
     final game = IslandGame(
       islandLayout: _layout!,
       existingBuildings: _listFromJson(snapshot['buildings'], _buildingFromJson),
@@ -789,7 +837,8 @@ class _IslandScreenState extends State<IslandScreen> {
             'boatId': boatId,
             'position': _pointToJson(position),
           }))
-      ..onLocalGather = ((nodeId) => _send({'type': 'gather', 'nodeId': nodeId}));
+      ..onLocalGather = ((nodeId) => _send({'type': 'gather', 'nodeId': nodeId}))
+      ..onLocalCollect = ((buildingId) => _send({'type': 'collect', 'buildingId': buildingId}));
 
     setState(() => _game = game);
 
@@ -810,6 +859,8 @@ class _IslandScreenState extends State<IslandScreen> {
   /// in the middle of doing (after a reconnect).
   void _join(IslandGame game) {
     _send({'type': 'join', 'position': _pointToJson(game.player.position)});
+    // The server doesn't remember what you were holding across reconnects.
+    _send({'type': 'select', 'slot': _inventory.value.selectedSlot});
     game.reportCurrentActivity();
   }
 
@@ -818,6 +869,7 @@ class _IslandScreenState extends State<IslandScreen> {
       case 'snapshot':
         // We reconnected: catch up on everything, then rejoin.
         _setPlayerState(event['state']);
+        _setInventory(event['inventory']);
         await game.syncBuildings(_listFromJson(event['buildings'], _buildingFromJson));
         await game.applyBoats(_listFromJson(event['boats'], _boatFromJson));
         await game.applyRemotePlayers(_listFromJson(event['players'], _playerFromJson));
@@ -825,6 +877,10 @@ class _IslandScreenState extends State<IslandScreen> {
         _join(game);
       case 'state':
         _setPlayerState(event['state']);
+      case 'inventory':
+        _setInventory(event['inventory']);
+      case 'buildingUpdated':
+        game.updateBuilding(_buildingFromJson(event['building'] as Map<String, dynamic>));
       case 'buildingAdded':
         await game.addBuilding(_buildingFromJson(event['building'] as Map<String, dynamic>));
       case 'buildingRemoved':
@@ -866,6 +922,11 @@ class _IslandScreenState extends State<IslandScreen> {
     }
   }
 
+  void _setInventory(Object? json) {
+    if (json is! Map<String, dynamic>) return;
+    _inventory.value = InventoryState.fromJson(json);
+  }
+
   void _setPlayerState(Object? json) {
     if (json is! Map<String, dynamic>) return;
     setState(() {
@@ -874,16 +935,12 @@ class _IslandScreenState extends State<IslandScreen> {
     });
   }
 
-  /// [_island] with the wood produced since it arrived added on, and the
-  /// hunger lost since then taken off.
+  /// [_island] with the hunger lost since it arrived taken off.
   PlayerState? get _currentIsland {
     final island = _island;
     if (island == null) return null;
     final seconds = DateTime.now().difference(_islandReceivedAt).inMilliseconds / 1000;
     return PlayerState(
-      wood: island.wood + island.woodPerSecond * seconds,
-      woodPerSecond: island.woodPerSecond,
-      food: island.food,
       hunger: max(0, island.hunger - island.hungerDrainPerSecond * seconds),
       hungerDrainPerSecond: island.hungerDrainPerSecond,
     );
@@ -923,7 +980,7 @@ class _IslandScreenState extends State<IslandScreen> {
               title: const Text('Lumberjack'),
               subtitle: Text(
                 canBuildLumberjack
-                    ? 'Produces wood for you over time. Costs 20 wood. Placed inland.'
+                    ? 'Stores wood for you to collect. Costs 20 wood (you have ${_inventory.value.count(ItemType.wood)}). Placed inland.'
                     : 'You already have one (limit 1 per player for now)',
               ),
               enabled: canBuildLumberjack,
@@ -1028,20 +1085,41 @@ class _IslandScreenState extends State<IslandScreen> {
   }
 
   void _showLumberjackMenu(LumberjackComponent lumberjack) {
+    if (!_game!.isOwnedByMe(lumberjack.ownerId)) {
+      showModalBottomSheet(
+        context: context,
+        builder: (_) => const SafeArea(child: _NotYoursTile(building: 'lumberjack')),
+      );
+      return;
+    }
+    final ready = lumberjack.storedWood.floor();
     showModalBottomSheet(
       context: context,
       builder: (sheetContext) => SafeArea(
-        child: _game!.isOwnedByMe(lumberjack.ownerId)
-            ? ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title: const Text('Destroy'),
-                subtitle: const Text('Remove this lumberjack (no refund)'),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _game!.destroyLumberjack(lumberjack);
-                },
-              )
-            : const _NotYoursTile(building: 'lumberjack'),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const ItemIcon(item: ItemType.wood, size: 28),
+              title: const Text('Collect wood'),
+              subtitle: Text('$ready of ${lumberjack.woodCapacity.round()} ready'),
+              enabled: ready >= 1,
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _game!.requestCollect(lumberjack);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text('Destroy'),
+              subtitle: const Text('Remove this lumberjack - no refund, and any wood in it is lost'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _game!.destroyLumberjack(lumberjack);
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1067,7 +1145,9 @@ class _IslandScreenState extends State<IslandScreen> {
               leading: const Icon(Icons.sailing),
               title: const Text('Boat'),
               subtitle: Text(
-                isSaved ? 'Build a boat at this port. Costs 10 wood.' : 'Port is still being built...',
+                isSaved
+                    ? 'Build a boat at this port. Costs 10 wood (you have ${_inventory.value.count(ItemType.wood)}).'
+                    : 'Port is still being built...',
               ),
               enabled: isSaved,
               onTap: () {
@@ -1153,10 +1233,7 @@ class _IslandScreenState extends State<IslandScreen> {
                   Positioned(
                     top: 16,
                     left: 16,
-                    child: _ResourcesHud(
-                      island: _currentIsland!,
-                      onEat: () => _send({'type': 'eat'}),
-                    ),
+                    child: _HungerHud(island: _currentIsland!),
                   ),
                 if (!_connected)
                   const Positioned(
@@ -1182,12 +1259,37 @@ class _IslandScreenState extends State<IslandScreen> {
                     ),
                   ),
                 Positioned(
-                  bottom: 24,
+                  bottom: 8,
+                  left: 8,
+                  right: 8,
+                  child: Center(
+                    child: ValueListenableBuilder<InventoryState>(
+                      valueListenable: _inventory,
+                      builder: (context, inventory, _) => Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (inventory.held?.item == ItemType.berry)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: FilledButton.icon(
+                                onPressed: _useHeld,
+                                icon: const ItemIcon(item: ItemType.berry, size: 20),
+                                label: const Text('Eat (E)'),
+                              ),
+                            ),
+                          Hotbar(inventory: inventory, onSelect: _selectSlot, onOpenBag: _openBag),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: 90,
                   right: 16,
                   child: _ZoomControls(game: game),
                 ),
                 Positioned(
-                  bottom: 24,
+                  bottom: 90,
                   left: 16,
                   child: FloatingActionButton.extended(
                     heroTag: 'build',
@@ -1310,64 +1412,27 @@ class _CoordinatesHud extends StatelessWidget {
   }
 }
 
-class _ResourcesHud extends StatelessWidget {
+class _HungerHud extends StatelessWidget {
   final PlayerState island;
-  final VoidCallback onEat;
 
-  const _ResourcesHud({required this.island, required this.onEat});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: Colors.black.withValues(alpha: 0.55),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _ResourceRow(
-              icon: Icons.forest,
-              iconColor: Colors.brown,
-              amount: island.wood.toStringAsFixed(2),
-              detail: '+${island.woodPerSecond} / sec',
-            ),
-            const SizedBox(height: 8),
-            _ResourceRow(
-              icon: Icons.restaurant,
-              iconColor: Colors.redAccent,
-              amount: island.food.toStringAsFixed(0),
-              detail: 'Pick berries to get more',
-            ),
-            const SizedBox(height: 10),
-            _HungerBar(island: island, onEat: onEat),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HungerBar extends StatelessWidget {
-  final PlayerState island;
-  final VoidCallback onEat;
-
-  const _HungerBar({required this.island, required this.onEat});
+  const _HungerHud({required this.island});
 
   @override
   Widget build(BuildContext context) {
     final fraction = island.hunger / PlayerState.maxHunger;
     final color = fraction <= 0.25 ? Colors.redAccent : Colors.lightGreenAccent;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 150,
+    return Card(
+      color: Colors.black.withValues(alpha: 0.55),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: SizedBox(
+          width: 160,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                island.isStarving ? 'Starving!' : 'Hunger ${island.hunger.ceil()}',
+                island.isStarving ? 'Starving! Eat some berries' : 'Hunger ${island.hunger.ceil()}',
                 style: TextStyle(
                   color: island.isStarving ? Colors.redAccent : Colors.white,
                   fontSize: 12,
@@ -1387,51 +1452,7 @@ class _HungerBar extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(width: 10),
-        FilledButton.tonal(
-          onPressed: island.canEat ? onEat : null,
-          style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            minimumSize: const Size(0, 32),
-          ),
-          child: const Text('Eat'),
-        ),
-      ],
-    );
-  }
-}
-
-class _ResourceRow extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
-  final String amount;
-  final String detail;
-
-  const _ResourceRow({
-    required this.icon,
-    required this.iconColor,
-    required this.amount,
-    required this.detail,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: iconColor, size: 28),
-        const SizedBox(width: 8),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              amount,
-              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            Text(detail, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-          ],
-        ),
-      ],
+      ),
     );
   }
 }

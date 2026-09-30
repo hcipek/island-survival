@@ -10,15 +10,15 @@ import org.hibernate.annotations.ColumnDefault;
 
 import java.time.Instant;
 
-/// One player's stock in one world. Created the first time it's needed, with
-/// the starting amount, so players who were in a world before resources
-/// became per-player simply start fresh.
+/// How a player is doing in one world - for now, just how hungry they are.
+/// (What they carry is in their inventory; see [InventorySlot].)
 ///
-/// Production isn't ticked on a timer: whenever the stock is read or spent,
-/// everything earned since [lastCollectedAt] is added first.
+/// Nothing ticks on a timer: whenever it's read, the hunger lost since
+/// [hungerSettledAt] is taken off first.
 @Entity
-@Table(uniqueConstraints = @UniqueConstraint(columnNames = {"worldId", "userId"}))
-public class PlayerResources {
+// The table keeps its old name, so existing players' hunger carries over.
+@Table(name = "player_resources", uniqueConstraints = @UniqueConstraint(columnNames = {"worldId", "userId"}))
+public class PlayerVitals {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -27,14 +27,8 @@ public class PlayerResources {
     private Long worldId;
     private Long userId;
 
-    private double wood;
-    private Instant lastCollectedAt = Instant.now();
-
-    /// The defaults let these columns be added to rows that already exist.
-    @ColumnDefault("0")
-    private double food;
-
-    /// 100 is full, 0 is starving.
+    /// 100 is full, 0 is starving. The default lets the column be added to
+    /// rows that already exist.
     @ColumnDefault("100")
     private double hunger = 100;
 
@@ -42,13 +36,12 @@ public class PlayerResources {
     /// world - or null while they're away, since hunger doesn't drop then.
     private Instant hungerSettledAt;
 
-    protected PlayerResources() {
+    protected PlayerVitals() {
     }
 
-    public PlayerResources(Long worldId, Long userId, double wood) {
+    public PlayerVitals(Long worldId, Long userId) {
         this.worldId = worldId;
         this.userId = userId;
-        this.wood = wood;
     }
 
     public Long getId() {
@@ -61,22 +54,6 @@ public class PlayerResources {
 
     public Long getUserId() {
         return userId;
-    }
-
-    public double getWood() {
-        return wood;
-    }
-
-    public void setWood(double wood) {
-        this.wood = wood;
-    }
-
-    public double getFood() {
-        return food;
-    }
-
-    public void setFood(double food) {
-        this.food = food;
     }
 
     public double getHunger() {
@@ -93,13 +70,5 @@ public class PlayerResources {
 
     public void setHungerSettledAt(Instant hungerSettledAt) {
         this.hungerSettledAt = hungerSettledAt;
-    }
-
-    public Instant getLastCollectedAt() {
-        return lastCollectedAt;
-    }
-
-    public void setLastCollectedAt(Instant lastCollectedAt) {
-        this.lastCollectedAt = lastCollectedAt;
     }
 }

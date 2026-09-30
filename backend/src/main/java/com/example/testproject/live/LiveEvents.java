@@ -21,11 +21,12 @@ public final class LiveEvents {
             List<BuildingDto> buildings,
             List<Map<String, Object>> boats,
             List<Map<String, Object>> players,
-            List<Map<String, Object>> nodes
+            List<Map<String, Object>> nodes,
+            Map<String, Object> inventory
     ) {
         return event(
                 "snapshot", "state", state, "buildings", buildings, "boats", boats, "players", players,
-                "nodes", nodes
+                "nodes", nodes, "inventory", inventory
         );
     }
 
@@ -83,6 +84,16 @@ public final class LiveEvents {
     /// Sticks were picked up, so they're gone.
     public static Map<String, Object> nodeRemoved(long nodeId) {
         return event("nodeRemoved", "nodeId", nodeId);
+    }
+
+    /// The player's own inventory, after it changed (or in their snapshot).
+    public static Map<String, Object> inventory(Map<String, Object> inventory) {
+        return event("inventory", "inventory", inventory);
+    }
+
+    /// A building changed, e.g. a lumberjack's storage was collected.
+    public static Map<String, Object> buildingUpdated(BuildingDto building) {
+        return event("buildingUpdated", "building", building);
     }
 
     public static Map<String, Object> error(String message) {

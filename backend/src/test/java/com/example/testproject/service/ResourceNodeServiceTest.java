@@ -1,6 +1,7 @@
 package com.example.testproject.service;
 
 import com.example.testproject.model.BuildingType;
+import com.example.testproject.model.ItemType;
 import com.example.testproject.model.ResourceNode;
 import com.example.testproject.model.ResourceNodeType;
 import com.example.testproject.model.WorldIsland;
@@ -46,7 +47,7 @@ class ResourceNodeServiceTest {
     private UserService userService;
 
     @Autowired
-    private PlayerResourcesService playerResourcesService;
+    private InventoryService inventoryService;
 
     private long worldId;
     private long aliceId;
@@ -131,15 +132,14 @@ class ResourceNodeServiceTest {
 
         gatherStandingOn(aliceId, bush);
 
-        assertThat(playerResourcesService.stateOf(worldId, aliceId).food()).isEqualTo(3);
-        assertThat(playerResourcesService.stateOf(worldId, aliceId).wood()).isEqualTo(20);
+        assertThat(inventoryService.count(worldId, aliceId, ItemType.BERRY)).isEqualTo(3);
     }
 
     @Test
     void pickingUpSticksGivesWood() {
         gatherStandingOn(aliceId, first(ResourceNodeType.STICKS));
 
-        assertThat(playerResourcesService.stateOf(worldId, aliceId).wood()).isCloseTo(22, within(0.01));
+        assertThat(inventoryService.count(worldId, aliceId, ItemType.STICK)).isEqualTo(2);
     }
 
     @Test
@@ -237,6 +237,7 @@ class ResourceNodeServiceTest {
 
     @Test
     void sticksDoNotDropOnBuildings() {
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 20);
         worldService.createBuilding(worldId,
                 new BuildingRequest(BuildingType.LUMBERJACK, 150, 150, aliceId));
         removeAllSticks();
@@ -277,7 +278,18 @@ class ResourceNodeServiceTest {
         resourceNodeRepository.save(picked);
 
         gatherStandingOn(bobId, bush);
-        assertThat(playerResourcesService.stateOf(worldId, bobId).food()).isEqualTo(3);
+        assertThat(inventoryService.count(worldId, bobId, ItemType.BERRY)).isEqualTo(3);
+    }
+
+    @Test
+    void aFullBagLeavesTheBushAsItWas() {
+        for (int i = 0; i < InventoryService.SLOT_COUNT; i++) {
+            inventoryService.add(worldId, aliceId, ItemType.STONE, 50);
+        }
+        ResourceNode bush = first(ResourceNodeType.BERRY_BUSH);
+
+        assertStatus(HttpStatus.CONFLICT, () -> gatherStandingOn(aliceId, bush));
+        assertThat(resourceNodeRepository.findById(bush.getId()).orElseThrow().isAvailable(Instant.now())).isTrue();
     }
 
     @Test

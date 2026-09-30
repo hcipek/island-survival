@@ -1,12 +1,14 @@
 package com.example.testproject.live;
 
 import com.example.testproject.model.Boat;
+import com.example.testproject.model.ItemType;
 import com.example.testproject.model.PlayerPresence;
 import com.example.testproject.model.User;
 import com.example.testproject.repository.BoatRepository;
 import com.example.testproject.repository.PlayerPresenceRepository;
 import com.example.testproject.repository.UserRepository;
-import com.example.testproject.service.PlayerResourcesService;
+import com.example.testproject.service.InventoryService;
+import com.example.testproject.service.PlayerVitalsService;
 import com.example.testproject.service.ResourceNodeService;
 import com.example.testproject.service.WorldService;
 import org.springframework.http.HttpStatus;
@@ -37,7 +39,8 @@ public class LiveWorldService {
     private final WorldSessionRegistry registry;
     private final WorldService worldService;
     private final ResourceNodeService resourceNodeService;
-    private final PlayerResourcesService playerResourcesService;
+    private final PlayerVitalsService playerVitalsService;
+    private final InventoryService inventoryService;
     private final PlayerPresenceRepository playerPresenceRepository;
     private final BoatRepository boatRepository;
     private final UserRepository userRepository;
@@ -51,7 +54,8 @@ public class LiveWorldService {
             WorldSessionRegistry registry,
             WorldService worldService,
             ResourceNodeService resourceNodeService,
-            PlayerResourcesService playerResourcesService,
+            PlayerVitalsService playerVitalsService,
+            InventoryService inventoryService,
             PlayerPresenceRepository playerPresenceRepository,
             BoatRepository boatRepository,
             UserRepository userRepository
@@ -59,7 +63,8 @@ public class LiveWorldService {
         this.registry = registry;
         this.worldService = worldService;
         this.resourceNodeService = resourceNodeService;
-        this.playerResourcesService = playerResourcesService;
+        this.playerVitalsService = playerVitalsService;
+        this.inventoryService = inventoryService;
         this.playerPresenceRepository = playerPresenceRepository;
         this.boatRepository = boatRepository;
         this.userRepository = userRepository;
@@ -104,7 +109,7 @@ public class LiveWorldService {
         }
 
         playerMovements.remove(movementKey(worldId, userId));
-        playerResourcesService.playerLeft(worldId, userId);
+        playerVitalsService.playerLeft(worldId, userId);
         if (registry.joinedUserIds(worldId).isEmpty()) {
             worldService.markActive(worldId); // the last player just left
         }
@@ -132,18 +137,66 @@ public class LiveWorldService {
         registry.broadcastExcept(worldId, session, LiveEvents.playerJoined(playerView(presence)));
 
         if (alreadyHereInAnotherTab) {
-            playerResourcesService.sendStateTo(playerResourcesService.collected(worldId, userId));
+            playerVitalsService.sendStateTo(playerVitalsService.current(worldId, userId));
         } else {
             // Hunger only drops while you're in the world.
-            playerResourcesService.sendStateTo(playerResourcesService.playerEntered(worldId, userId));
+            playerVitalsService.sendStateTo(playerVitalsService.playerEntered(worldId, userId));
         }
     }
 
-    public void eat(WebSocketSession session) {
+    /// Picks which quick-access slot the player is holding.
+    public void select(WebSocketSession session, Integer slot) {
+        long worldId = registry.worldIdOf(session);
+        long userId = registry.userIdOf(session);
+        requireNotNull(slot, "slot");
+        inventoryService.select(worldId, userId, slot);
+        inventoryService.sendTo(worldId, userId);
+    }
+
+    public void moveItem(WebSocketSession session, Integer fromSlot, Integer toSlot) {
+        long worldId = registry.worldIdOf(session);
+        long userId = registry.userIdOf(session);
+        requireNotNull(fromSlot, "fromSlot");
+        requireNotNull(toSlot, "toSlot");
+        inventoryService.move(worldId, userId, fromSlot, toSlot);
+        inventoryService.sendTo(worldId, userId);
+    }
+
+    public void discard(WebSocketSession session, Integer slot) {
+        long worldId = registry.worldIdOf(session);
+        long userId = registry.userIdOf(session);
+        requireNotNull(slot, "slot");
+        inventoryService.discard(worldId, userId, slot);
+        inventoryService.sendTo(worldId, userId);
+    }
+
+    /// Uses what the player is holding. For now that means eating a berry;
+    /// tools do their thing out in the world instead (chopping, building).
+    public void use(WebSocketSession session) {
         long worldId = registry.worldIdOf(session);
         long userId = registry.userIdOf(session);
         requireJoined(session);
-        playerResourcesService.sendStateTo(playerResourcesService.eat(worldId, userId));
+        ItemType held = inventoryService.held(worldId, userId);
+        if (held != ItemType.BERRY) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    held == null ? "You're not holding anything" : "You can't use that here");
+        }
+        playerVitalsService.requireHungry(worldId, userId);
+        inventoryService.removeOneHeld(worldId, userId, ItemType.BERRY);
+        playerVitalsService.sendStateTo(playerVitalsService.eatBerry(worldId, userId));
+        inventoryService.sendTo(worldId, userId);
+    }
+
+    /// Takes the wood a player's lumberjack has been storing.
+    public void collect(WebSocketSession session, Long buildingId) {
+        long worldId = registry.worldIdOf(session);
+        long userId = registry.userIdOf(session);
+        requireJoined(session);
+        PlayerPresence presence = presenceOf(worldId, userId);
+        if (presence.getBoatId() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Land on the island first");
+        }
+        worldService.collectFromLumberjack(worldId, userId, buildingId, presence.getX(), presence.getY());
     }
 
     public void move(WebSocketSession session, Point from, List<Point> path) {
@@ -235,7 +288,7 @@ public class LiveWorldService {
             registry.broadcast(worldId, LiveEvents.nodeDepleted(
                     result.node().getId(), ResourceNodeService.regrowsInMillis(result.node(), Instant.now())));
         }
-        playerResourcesService.sendStateTo(result.resources());
+        inventoryService.sendTo(worldId, userId);
     }
 
     private Map<String, Object> snapshot(long worldId, long excludingUserId) {
@@ -253,7 +306,7 @@ public class LiveWorldService {
         resourceNodeService.ensureNodes(worldId);
         return LiveEvents.snapshot(
                 worldService.getState(worldId, excludingUserId), worldService.getBuildings(worldId), boats, players,
-                resourceNodeService.nodesView(worldId)
+                resourceNodeService.nodesView(worldId), inventoryService.view(worldId, excludingUserId)
         );
     }
 

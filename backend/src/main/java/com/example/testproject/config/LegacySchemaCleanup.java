@@ -24,8 +24,13 @@ public class LegacySchemaCleanup implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         // Wood used to be one pool per world; it's per player now (see
-        // PlayerResources), and existing players start fresh.
+        // PlayerVitals), and existing players start fresh.
         jdbcTemplate.execute("ALTER TABLE world DROP COLUMN IF EXISTS wood");
         jdbcTemplate.execute("ALTER TABLE world DROP COLUMN IF EXISTS last_collected_at");
+        // Wood and food moved into inventories (see InventorySlot), and
+        // everyone starts empty-handed.
+        jdbcTemplate.execute("ALTER TABLE player_resources DROP COLUMN IF EXISTS wood");
+        jdbcTemplate.execute("ALTER TABLE player_resources DROP COLUMN IF EXISTS food");
+        jdbcTemplate.execute("ALTER TABLE player_resources DROP COLUMN IF EXISTS last_collected_at");
     }
 }

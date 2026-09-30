@@ -2,7 +2,7 @@ package com.example.testproject.service;
 
 import com.example.testproject.live.LiveEvents;
 import com.example.testproject.model.Building;
-import com.example.testproject.model.PlayerResources;
+import com.example.testproject.model.ItemType;
 import com.example.testproject.model.ResourceNode;
 import com.example.testproject.model.ResourceNodeType;
 import com.example.testproject.model.WorldIsland;
@@ -38,8 +38,8 @@ public class ResourceNodeService {
     /// little shorter so normal play never trips it, but spamming does.
     private static final Duration GATHER_COOLDOWN = Duration.ofMillis(1500);
 
-    private static final double FOOD_PER_BERRY_BUSH = 3;
-    private static final double WOOD_PER_STICKS = 2;
+    private static final int BERRIES_PER_BUSH = 3;
+    private static final int STICKS_PER_PILE = 2;
     private static final Duration BERRY_BUSH_REGROW = Duration.ofMinutes(3);
 
     /// The most sticks lying around on an island at once.
@@ -77,7 +77,8 @@ public class ResourceNodeService {
     private final ResourceNodeRepository resourceNodeRepository;
     private final WorldIslandRepository worldIslandRepository;
     private final BuildingRepository buildingRepository;
-    private final PlayerResourcesService playerResourcesService;
+    private final PlayerVitalsService playerVitalsService;
+    private final InventoryService inventoryService;
     private final Random random = new Random();
 
     /// When each player (by world and user) last gathered, for the cooldown.
@@ -87,17 +88,19 @@ public class ResourceNodeService {
             ResourceNodeRepository resourceNodeRepository,
             WorldIslandRepository worldIslandRepository,
             BuildingRepository buildingRepository,
-            PlayerResourcesService playerResourcesService
+            PlayerVitalsService playerVitalsService,
+            InventoryService inventoryService
     ) {
         this.resourceNodeRepository = resourceNodeRepository;
         this.worldIslandRepository = worldIslandRepository;
         this.buildingRepository = buildingRepository;
-        this.playerResourcesService = playerResourcesService;
+        this.playerVitalsService = playerVitalsService;
+        this.inventoryService = inventoryService;
     }
 
-    /// What gathering did: the node - now regrowing, or [removed] entirely
-    /// if it was sticks - and the player's updated resources.
-    public record GatherResult(ResourceNode node, boolean removed, PlayerResources resources) {
+    /// What gathering did to the node: now regrowing, or [removed] entirely
+    /// if it was sticks. What it gave went into the player's inventory.
+    public record GatherResult(ResourceNode node, boolean removed) {
     }
 
     /// Sticks that appeared, and ones that were cleared away.
@@ -133,20 +136,21 @@ public class ResourceNodeService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Still busy gathering");
         }
 
-        PlayerResources resources = playerResourcesService.collected(worldId, userId);
+        // Items go in first: if the bag is full, this fails and the node is
+        // left as it was.
         GatherResult result = switch (node.getType()) {
             case BERRY_BUSH -> {
-                playerResourcesService.addFood(resources, FOOD_PER_BERRY_BUSH);
+                inventoryService.add(worldId, userId, ItemType.BERRY, BERRIES_PER_BUSH);
                 node.setDepletedUntil(now.plus(BERRY_BUSH_REGROW));
-                yield new GatherResult(resourceNodeRepository.save(node), false, resources);
+                yield new GatherResult(resourceNodeRepository.save(node), false);
             }
             case STICKS -> {
                 // Berries are allowed while starving - otherwise you could
                 // never recover.
-                playerResourcesService.requireNotStarving(resources);
-                playerResourcesService.addWood(resources, WOOD_PER_STICKS);
+                playerVitalsService.requireNotStarving(worldId, userId);
+                inventoryService.add(worldId, userId, ItemType.STICK, STICKS_PER_PILE);
                 resourceNodeRepository.delete(node);
-                yield new GatherResult(node, true, resources);
+                yield new GatherResult(node, true);
             }
             case TREE -> throw new IllegalStateException("handled above");
         };

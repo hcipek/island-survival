@@ -6,6 +6,9 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import org.hibernate.annotations.ColumnDefault;
+
+import java.time.Instant;
 
 @Entity
 public class Building {
@@ -22,6 +25,12 @@ public class Building {
 
     private double x;
     private double y;
+
+    /// Wood a lumberjack has produced and is holding until its owner comes
+    /// to collect it, as of [producedUntil]. (Always 0 for other buildings.)
+    @ColumnDefault("0")
+    private double storedWood;
+    private Instant producedUntil;
 
     protected Building() {
     }
@@ -56,5 +65,21 @@ public class Building {
 
     public double getY() {
         return y;
+    }
+
+    public double getStoredWood() {
+        return storedWood;
+    }
+
+    public void setStoredWood(double storedWood) {
+        this.storedWood = storedWood;
+    }
+
+    public Instant getProducedUntil() {
+        return producedUntil;
+    }
+
+    public void setProducedUntil(Instant producedUntil) {
+        this.producedUntil = producedUntil;
     }
 }

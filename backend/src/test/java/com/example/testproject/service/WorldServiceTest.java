@@ -1,8 +1,8 @@
 package com.example.testproject.service;
 
+import com.example.testproject.model.Building;
 import com.example.testproject.model.BuildingType;
-import com.example.testproject.model.PlayerResources;
-import com.example.testproject.model.dto.PlayerStateDto;
+import com.example.testproject.model.ItemType;
 import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
 import com.example.testproject.model.req.BuildingRequest;
@@ -10,7 +10,7 @@ import com.example.testproject.model.req.CreateBoatRequest;
 import com.example.testproject.model.req.CreateUserRequest;
 import com.example.testproject.model.req.CreateWorldRequest;
 import com.example.testproject.repository.BoatRepository;
-import com.example.testproject.repository.PlayerResourcesRepository;
+import com.example.testproject.repository.BuildingRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -46,10 +46,13 @@ class WorldServiceTest {
     private UserService userService;
 
     @Autowired
-    private PlayerResourcesRepository playerResourcesRepository;
+    private InventoryService inventoryService;
 
     @Autowired
     private BoatRepository boatRepository;
+
+    @Autowired
+    private BuildingRepository buildingRepository;
 
     private long worldId;
     private long aliceId;
@@ -63,51 +66,32 @@ class WorldServiceTest {
     }
 
     @Test
-    void everyPlayerStartsWithEnoughWoodForOneLumberjack() {
-        assertThat(woodOf(aliceId).wood()).isEqualTo(20);
-        assertThat(woodOf(bobId).wood()).isEqualTo(20);
+    void everyoneStartsEmptyHanded() {
+        assertThat(wood(aliceId)).isZero();
+        assertThat(wood(bobId)).isZero();
     }
 
     @Test
-    void spendingWoodOnlyAffectsYourOwn() {
+    void aLumberjackCostsWoodFromYourInventory() {
+        give(aliceId, 25);
+
         build(BuildingType.LUMBERJACK, ON_GRASS);
 
-        assertThat(woodOf(aliceId).wood()).isCloseTo(0, within(0.1));
-        assertThat(woodOf(bobId).wood()).isEqualTo(20);
-    }
-
-    @Test
-    void buildingALumberjackSpendsWood() {
-        build(BuildingType.LUMBERJACK, ON_GRASS);
-
-        assertThat(woodOf(aliceId).wood()).isCloseTo(0, within(0.1));
-        assertThat(woodOf(aliceId).woodPerSecond()).isEqualTo(0.5);
-    }
-
-    @Test
-    void lumberjackProducesWoodForItsOwnerOnly() {
-        build(BuildingType.LUMBERJACK, ON_GRASS);
-        woodOf(bobId); // make sure Bob has resources to compare against
-        pretendLastCollectedSecondsAgo(aliceId, 10);
-        pretendLastCollectedSecondsAgo(bobId, 10);
-
-        // 10 seconds * 0.5 wood per second
-        assertThat(woodOf(aliceId).wood()).isCloseTo(5, within(0.1));
-        assertThat(woodOf(bobId).wood()).isEqualTo(20);
-        assertThat(woodOf(bobId).woodPerSecond()).isZero();
+        assertThat(wood(aliceId)).isEqualTo(5);
+        assertThat(wood(bobId)).isZero();
     }
 
     @Test
     void lumberjackNeedsEnoughWood() {
-        setWood(aliceId, 5);
+        give(aliceId, 5);
 
         assertStatus(HttpStatus.CONFLICT, () -> build(BuildingType.LUMBERJACK, ON_GRASS));
-        assertThat(woodOf(aliceId).wood()).isCloseTo(5, within(0.1));
+        assertThat(wood(aliceId)).isEqualTo(5);
     }
 
     @Test
     void onlyOneLumberjackPerPlayer() {
-        setWood(aliceId, 100);
+        give(aliceId, 100);
         build(BuildingType.LUMBERJACK, ON_GRASS);
 
         assertStatus(HttpStatus.CONFLICT, () -> build(BuildingType.LUMBERJACK, -ON_GRASS));
@@ -115,13 +99,87 @@ class WorldServiceTest {
 
     @Test
     void someoneElsesLumberjackDoesNotUseUpYourLimit() {
+        give(aliceId, 20);
+        give(bobId, 20);
         build(BuildingType.LUMBERJACK, ON_GRASS);
 
         BuildingDto bobs = worldService.createBuilding(
                 worldId, new BuildingRequest(BuildingType.LUMBERJACK, -ON_GRASS, 0, bobId));
 
         assertThat(bobs.ownerId()).isEqualTo(bobId);
-        assertThat(woodOf(bobId).woodPerSecond()).isEqualTo(0.5);
+    }
+
+    @Test
+    void aLumberjackSlowlyFillsItsOwnStorage() {
+        BuildingDto lumberjack = lumberjackForAlice();
+        pretendProducingForSeconds(lumberjack, 100);
+
+        // 100 seconds * 0.1 wood per second
+        BuildingDto now = buildingNamed(lumberjack.id());
+        assertThat(now.storedWood()).isCloseTo(10, within(0.1));
+        assertThat(now.woodPerSecond()).isEqualTo(0.1);
+        assertThat(wood(aliceId)).isZero(); // nothing arrives until collected
+    }
+
+    @Test
+    void storageStopsFillingWhenFull() {
+        BuildingDto lumberjack = lumberjackForAlice();
+        pretendProducingForSeconds(lumberjack, 100_000);
+
+        assertThat(buildingNamed(lumberjack.id()).storedWood()).isEqualTo(50);
+    }
+
+    @Test
+    void collectingMovesTheStoredWoodIntoYourInventory() {
+        BuildingDto lumberjack = lumberjackForAlice();
+        pretendProducingForSeconds(lumberjack, 100);
+
+        BuildingDto after = worldService.collectFromLumberjack(worldId, aliceId, lumberjack.id(), ON_GRASS, 30);
+
+        assertThat(wood(aliceId)).isEqualTo(10);
+        assertThat(after.storedWood()).isCloseTo(0, within(0.1));
+    }
+
+    @Test
+    void collectingOnlyTakesWhatFitsInYourBag() {
+        BuildingDto lumberjack = lumberjackForAlice();
+        pretendProducingForSeconds(lumberjack, 100);
+        // Fill every slot but the last with stones, and that one with 45 wood.
+        for (int i = 0; i < InventoryService.SLOT_COUNT - 1; i++) {
+            inventoryService.add(worldId, aliceId, ItemType.STONE, 50);
+        }
+        give(aliceId, 45);
+
+        BuildingDto after = worldService.collectFromLumberjack(worldId, aliceId, lumberjack.id(), ON_GRASS, 30);
+
+        assertThat(wood(aliceId)).isEqualTo(50);
+        assertThat(after.storedWood()).isCloseTo(5, within(0.1)); // the rest waits there
+    }
+
+    @Test
+    void youHaveToBeNextToYourLumberjackToCollect() {
+        BuildingDto lumberjack = lumberjackForAlice();
+        pretendProducingForSeconds(lumberjack, 100);
+
+        assertStatus(HttpStatus.CONFLICT,
+                () -> worldService.collectFromLumberjack(worldId, aliceId, lumberjack.id(), -400, 0));
+    }
+
+    @Test
+    void youCannotCollectFromSomeoneElsesLumberjack() {
+        BuildingDto lumberjack = lumberjackForAlice();
+        pretendProducingForSeconds(lumberjack, 100);
+
+        assertStatus(HttpStatus.FORBIDDEN,
+                () -> worldService.collectFromLumberjack(worldId, bobId, lumberjack.id(), ON_GRASS, 30));
+    }
+
+    @Test
+    void thereHasToBeSomethingToCollect() {
+        BuildingDto lumberjack = lumberjackForAlice();
+
+        assertStatus(HttpStatus.CONFLICT,
+                () -> worldService.collectFromLumberjack(worldId, aliceId, lumberjack.id(), ON_GRASS, 30));
     }
 
     @Test
@@ -139,11 +197,15 @@ class WorldServiceTest {
 
     @Test
     void lumberjackCannotBeBuiltOnSand() {
+        give(aliceId, 20);
+
         assertStatus(HttpStatus.BAD_REQUEST, () -> build(BuildingType.LUMBERJACK, ON_SAND));
     }
 
     @Test
     void nothingCanBeBuiltInTheSea() {
+        give(aliceId, 20);
+
         assertStatus(HttpStatus.BAD_REQUEST, () -> build(BuildingType.PORT, IN_SEA));
         assertStatus(HttpStatus.BAD_REQUEST, () -> build(BuildingType.LUMBERJACK, IN_SEA));
         assertThat(worldService.getBuildings(worldId)).isEmpty();
@@ -169,6 +231,7 @@ class WorldServiceTest {
     @Test
     void boatIsBuiltJustOffTheCoastNextToThePort() {
         BuildingDto port = build(BuildingType.PORT, ON_SAND);
+        give(aliceId, 10);
 
         BoatDto boat = worldService.createBoat(worldId, new CreateBoatRequest(port.id(), aliceId));
 
@@ -181,19 +244,19 @@ class WorldServiceTest {
     }
 
     @Test
-    void buildingABoatSpendsWood() {
+    void aBoatCostsWoodFromYourInventory() {
         BuildingDto port = build(BuildingType.PORT, ON_SAND);
+        give(aliceId, 15);
 
         worldService.createBoat(worldId, new CreateBoatRequest(port.id(), aliceId));
 
-        assertThat(woodOf(aliceId).wood()).isCloseTo(10, within(0.1));
-        assertThat(woodOf(bobId).wood()).isEqualTo(20);
+        assertThat(wood(aliceId)).isEqualTo(5);
     }
 
     @Test
     void boatNeedsEnoughWood() {
         BuildingDto port = build(BuildingType.PORT, ON_SAND);
-        setWood(aliceId, 5);
+        give(aliceId, 5);
 
         assertStatus(HttpStatus.CONFLICT,
                 () -> worldService.createBoat(worldId, new CreateBoatRequest(port.id(), aliceId)));
@@ -203,6 +266,7 @@ class WorldServiceTest {
     @Test
     void boatCanOnlyBeBuiltAtYourOwnPort() {
         BuildingDto alicesPort = build(BuildingType.PORT, ON_SAND);
+        give(bobId, 10);
 
         assertStatus(HttpStatus.FORBIDDEN,
                 () -> worldService.createBoat(worldId, new CreateBoatRequest(alicesPort.id(), bobId)));
@@ -210,7 +274,8 @@ class WorldServiceTest {
 
     @Test
     void boatCannotBeBuiltAtALumberjack() {
-        BuildingDto lumberjack = build(BuildingType.LUMBERJACK, ON_GRASS);
+        BuildingDto lumberjack = lumberjackForAlice();
+        give(aliceId, 10);
 
         assertStatus(HttpStatus.NOT_FOUND,
                 () -> worldService.createBoat(worldId, new CreateBoatRequest(lumberjack.id(), aliceId)));
@@ -227,30 +292,30 @@ class WorldServiceTest {
         return worldService.createBuilding(worldId, new BuildingRequest(type, x, 0, aliceId));
     }
 
-    private BoatDto buildBoatForAlice() {
-        BuildingDto port = build(BuildingType.PORT, ON_SAND);
-        return worldService.createBoat(worldId, new CreateBoatRequest(port.id(), aliceId));
+    private BuildingDto lumberjackForAlice() {
+        give(aliceId, 20);
+        return build(BuildingType.LUMBERJACK, ON_GRASS);
     }
 
-    private PlayerStateDto woodOf(long userId) {
-        return worldService.getState(worldId, userId);
+    private BuildingDto buildingNamed(long buildingId) {
+        return worldService.getBuildings(worldId).stream()
+                .filter(b -> b.id() == buildingId)
+                .findFirst()
+                .orElseThrow();
     }
 
-    private void setWood(long userId, double wood) {
-        PlayerResources resources = resourcesOf(userId);
-        resources.setWood(wood);
-        playerResourcesRepository.save(resources);
+    private void pretendProducingForSeconds(BuildingDto dto, long seconds) {
+        Building building = buildingRepository.findById(dto.id()).orElseThrow();
+        building.setProducedUntil(Instant.now().minusSeconds(seconds));
+        buildingRepository.save(building);
     }
 
-    private void pretendLastCollectedSecondsAgo(long userId, long seconds) {
-        PlayerResources resources = resourcesOf(userId);
-        resources.setLastCollectedAt(Instant.now().minusSeconds(seconds));
-        playerResourcesRepository.save(resources);
+    private void give(long userId, int wood) {
+        inventoryService.add(worldId, userId, ItemType.WOOD, wood);
     }
 
-    private PlayerResources resourcesOf(long userId) {
-        woodOf(userId); // creates them with the starting amount if needed
-        return playerResourcesRepository.findByWorldIdAndUserId(worldId, userId).orElseThrow();
+    private int wood(long userId) {
+        return inventoryService.count(worldId, userId, ItemType.WOOD);
     }
 
     private static void assertStatus(HttpStatus expected, Executable action) {
