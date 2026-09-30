@@ -6,6 +6,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import org.hibernate.annotations.ColumnDefault;
 
 import java.time.Instant;
 
@@ -28,6 +29,10 @@ public class PlayerResources {
 
     private double wood;
     private Instant lastCollectedAt = Instant.now();
+
+    /// The default lets the column be added to rows that already exist.
+    @ColumnDefault("0")
+    private double food;
 
     protected PlayerResources() {
     }
@@ -56,6 +61,14 @@ public class PlayerResources {
 
     public void setWood(double wood) {
         this.wood = wood;
+    }
+
+    public double getFood() {
+        return food;
+    }
+
+    public void setFood(double food) {
+        this.food = food;
     }
 
     public Instant getLastCollectedAt() {

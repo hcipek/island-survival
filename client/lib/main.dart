@@ -78,16 +78,19 @@ class WorldData {
   }
 }
 
-class IslandState {
+/// This player's own resources in the current world.
+class PlayerState {
   final double wood;
   final double woodPerSecond;
+  final double food;
 
-  IslandState({required this.wood, required this.woodPerSecond});
+  PlayerState({required this.wood, required this.woodPerSecond, required this.food});
 
-  factory IslandState.fromJson(Map<String, dynamic> json) {
-    return IslandState(
+  factory PlayerState.fromJson(Map<String, dynamic> json) {
+    return PlayerState(
       wood: (json['wood'] as num).toDouble(),
       woodPerSecond: (json['woodPerSecond'] as num).toDouble(),
+      food: (json['food'] as num?)?.toDouble() ?? 0,
     );
   }
 }
@@ -653,7 +656,7 @@ class _IslandScreenState extends State<IslandScreen> {
 
   /// Latest wood numbers from the server, and when they arrived - the HUD
   /// counts up from there by itself between updates.
-  IslandState? _island;
+  PlayerState? _island;
   DateTime _islandReceivedAt = DateTime.now();
 
   /// Events are applied strictly one after another, since applying one can
@@ -722,7 +725,7 @@ class _IslandScreenState extends State<IslandScreen> {
   }
 
   void _startGame(Map<String, dynamic> snapshot) {
-    _setIslandState(snapshot['state']);
+    _setPlayerState(snapshot['state']);
     final game = IslandGame(
       islandLayout: _layout!,
       existingBuildings: _listFromJson(snapshot['buildings'], _buildingFromJson),
@@ -760,7 +763,8 @@ class _IslandScreenState extends State<IslandScreen> {
             'type': 'land',
             'boatId': boatId,
             'position': _pointToJson(position),
-          }));
+          }))
+      ..onLocalGather = ((nodeId) => _send({'type': 'gather', 'nodeId': nodeId}));
 
     setState(() => _game = game);
 
@@ -788,14 +792,14 @@ class _IslandScreenState extends State<IslandScreen> {
     switch (event['type']) {
       case 'snapshot':
         // We reconnected: catch up on everything, then rejoin.
-        _setIslandState(event['state']);
+        _setPlayerState(event['state']);
         await game.syncBuildings(_listFromJson(event['buildings'], _buildingFromJson));
         await game.applyBoats(_listFromJson(event['boats'], _boatFromJson));
         await game.applyRemotePlayers(_listFromJson(event['players'], _playerFromJson));
         await game.applyNodes(_listFromJson(event['nodes'], _nodeFromJson));
         _join(game);
       case 'state':
-        _setIslandState(event['state']);
+        _setPlayerState(event['state']);
       case 'buildingAdded':
         await game.addBuilding(_buildingFromJson(event['building'] as Map<String, dynamic>));
       case 'buildingRemoved':
@@ -823,27 +827,33 @@ class _IslandScreenState extends State<IslandScreen> {
           event['userId'] as int,
           _pointFromJson(event['position'] as Map<String, dynamic>),
         );
+      case 'nodeDepleted':
+        game.depleteNode(
+          event['nodeId'] as int,
+          Duration(milliseconds: (event['regrowsInMs'] as num).toInt()),
+        );
       case 'error':
         _showNotice(event['message'] as String? ?? 'Something went wrong');
     }
   }
 
-  void _setIslandState(Object? json) {
+  void _setPlayerState(Object? json) {
     if (json is! Map<String, dynamic>) return;
     setState(() {
-      _island = IslandState.fromJson(json);
+      _island = PlayerState.fromJson(json);
       _islandReceivedAt = DateTime.now();
     });
   }
 
   /// [_island] with the wood produced since it arrived added on.
-  IslandState? get _currentIsland {
+  PlayerState? get _currentIsland {
     final island = _island;
     if (island == null) return null;
     final seconds = DateTime.now().difference(_islandReceivedAt).inMilliseconds / 1000;
-    return IslandState(
+    return PlayerState(
       wood: island.wood + island.woodPerSecond * seconds,
       woodPerSecond: island.woodPerSecond,
+      food: island.food,
     );
   }
 
@@ -1107,7 +1117,7 @@ class _IslandScreenState extends State<IslandScreen> {
                   Positioned(
                     top: 16,
                     left: 16,
-                    child: _WoodHud(island: _currentIsland!),
+                    child: _ResourcesHud(island: _currentIsland!),
                   ),
                 if (!_connected)
                   const Positioned(
@@ -1261,10 +1271,10 @@ class _CoordinatesHud extends StatelessWidget {
   }
 }
 
-class _WoodHud extends StatelessWidget {
-  final IslandState island;
+class _ResourcesHud extends StatelessWidget {
+  final PlayerState island;
 
-  const _WoodHud({required this.island});
+  const _ResourcesHud({required this.island});
 
   @override
   Widget build(BuildContext context) {
@@ -1272,31 +1282,61 @@ class _WoodHud extends StatelessWidget {
       color: Colors.black.withValues(alpha: 0.55),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.forest, color: Colors.brown, size: 28),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  island.wood.toStringAsFixed(2),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  '+${island.woodPerSecond} / sec',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-              ],
+            _ResourceRow(
+              icon: Icons.forest,
+              iconColor: Colors.brown,
+              amount: island.wood.toStringAsFixed(2),
+              detail: '+${island.woodPerSecond} / sec',
+            ),
+            const SizedBox(height: 8),
+            _ResourceRow(
+              icon: Icons.restaurant,
+              iconColor: Colors.redAccent,
+              amount: island.food.toStringAsFixed(0),
+              detail: 'Pick berries to get more',
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ResourceRow extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String amount;
+  final String detail;
+
+  const _ResourceRow({
+    required this.icon,
+    required this.iconColor,
+    required this.amount,
+    required this.detail,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: iconColor, size: 28),
+        const SizedBox(width: 8),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              amount,
+              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            Text(detail, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          ],
+        ),
+      ],
     );
   }
 }

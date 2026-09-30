@@ -201,6 +201,10 @@ class IslandGame extends FlameGame {
   /// Called when this player steps off their boat at [position].
   void Function(int boatId, Vector2 position)? onLocalLand;
 
+  /// Called when this player has finished gathering from a node, so the
+  /// Flutter UI can ask the server for what it gives.
+  void Function(int nodeId)? onLocalGather;
+
   /// Called with a short message the Flutter UI should show the player,
   /// e.g. when they try to board someone else's boat.
   void Function(String message)? onNotice;
@@ -280,12 +284,79 @@ class IslandGame extends FlameGame {
     _fitZoomToScreen();
   }
 
+  /// How long picking berries or sticks takes, shown as a ring above the
+  /// player. The server has a matching (slightly shorter) cooldown.
+  static const double gatherSeconds = 2;
+
+  /// What this player is gathering from right now, if anything.
+  ResourceNodeComponent? _gatheringFrom;
+  double _gatherElapsed = 0;
+
   @override
   void update(double dt) {
     super.update(dt);
     if (!_isFreeLooking) {
       cameraComponent.viewfinder.position = player.position;
     }
+    _updateGathering(dt);
+  }
+
+  void _updateGathering(double dt) {
+    final node = _gatheringFrom;
+    if (node == null) return;
+    if (!node.isAvailable) {
+      _stopGathering();
+      onNotice?.call('Someone else got there first');
+      return;
+    }
+    _gatherElapsed += dt;
+    player.gatherProgress = (_gatherElapsed / gatherSeconds).clamp(0, 1);
+    if (_gatherElapsed >= gatherSeconds) {
+      _stopGathering();
+      onLocalGather?.call(node.id);
+    }
+  }
+
+  void _stopGathering() {
+    _gatheringFrom = null;
+    _gatherElapsed = 0;
+    player.gatherProgress = null;
+  }
+
+  /// Called when the player taps a tree, bush or pile of sticks: walks up to
+  /// it and gathers once there.
+  void requestGather(ResourceNodeComponent node) {
+    if (player.boardedBoat != null) {
+      onNotice?.call('Land on the island first');
+      return;
+    }
+    if (node.type == ResourceNodeType.tree) {
+      onNotice?.call("You'll need an axe to chop trees - coming later");
+      return;
+    }
+    if (!node.isAvailable) {
+      final seconds = node.regrowsAt!.difference(DateTime.now()).inSeconds + 1;
+      onNotice?.call('Already picked - it regrows in ${seconds}s');
+      return;
+    }
+    if (_islandAt(node.position) != currentPlayerIsland) {
+      onNotice?.call('Sail over to that island first');
+      return;
+    }
+
+    // Stand just next to it, on the side we're coming from.
+    final offset = player.position - node.position;
+    final direction = offset.length == 0 ? Vector2(0, 1) : offset.normalized();
+    final spot = currentPlayerIsland.clampToIsland(node.position + direction * 35);
+    _walkTo(spot, onArrived: () {
+      _gatheringFrom = node;
+      _gatherElapsed = 0;
+    });
+  }
+
+  /// Someone (maybe us) gathered from a node; it's bare for [regrowsIn].
+  void depleteNode(int nodeId, Duration regrowsIn) {
+    resourceNodes[nodeId]?.setRegrowsIn(regrowsIn);
   }
 
   /// Snaps the camera back to following the player after a free-look pan.
@@ -538,6 +609,7 @@ class IslandGame extends FlameGame {
 
   /// Walks this player to [target] and tells everyone else.
   void _walkTo(Vector2 target, {VoidCallback? onArrived}) {
+    _stopGathering();
     final from = player.position.clone();
     player.moveTo(target, onArrived: onArrived);
     onLocalWalk?.call(from, [target]);
@@ -1147,7 +1219,8 @@ class BuildGhostComponent extends PositionComponent
 
 /// A tree, berry bush or pile of sticks on an island. Shared by everyone:
 /// once it's been gathered from, it looks bare until [regrowsAt].
-abstract class ResourceNodeComponent extends PositionComponent {
+abstract class ResourceNodeComponent extends PositionComponent
+    with TapCallbacks, HasGameReference<IslandGame> {
   final int id;
   final ResourceNodeType type;
 
@@ -1169,6 +1242,13 @@ abstract class ResourceNodeComponent extends PositionComponent {
 
   void setRegrowsIn(Duration regrowsIn) {
     regrowsAt = regrowsIn <= Duration.zero ? null : DateTime.now().add(regrowsIn);
+  }
+
+  @override
+  void onTapDown(TapDownEvent event) {
+    super.onTapDown(event);
+    event.continuePropagation = false;
+    game.requestGather(this);
   }
 }
 
@@ -1319,6 +1399,9 @@ class PlayerComponent extends PositionComponent with PathFollower {
   final String username;
   final Color ownerColor;
 
+  /// 0 to 1 while gathering, drawn as a ring above the player's head.
+  double? gatherProgress;
+
   PlayerComponent({
     required double islandRadius,
     required this.username,
@@ -1364,6 +1447,33 @@ class PlayerComponent extends PositionComponent with PathFollower {
     canvas.drawCircle(headCenter, headRadius, headPaint);
 
     _renderNameTag(canvas);
+    _renderGatherProgress(canvas);
+  }
+
+  void _renderGatherProgress(Canvas canvas) {
+    final progress = gatherProgress;
+    if (progress == null) return;
+    final center = Offset(size.x / 2, -size.y * 0.75);
+    final radius = size.x * 0.45;
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = const Color(0x66000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = size.x * 0.14,
+    );
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -pi / 2,
+      2 * pi * progress,
+      false,
+      Paint()
+        ..color = const Color(0xFFFFFFFF)
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = size.x * 0.14,
+    );
   }
 
   void _renderNameTag(Canvas canvas) {

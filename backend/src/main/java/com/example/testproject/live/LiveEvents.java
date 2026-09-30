@@ -3,7 +3,7 @@ package com.example.testproject.live;
 import com.example.testproject.model.ResourceNodeType;
 import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
-import com.example.testproject.model.dto.WorldStateDto;
+import com.example.testproject.model.dto.PlayerStateDto;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,7 +17,7 @@ public final class LiveEvents {
     }
 
     public static Map<String, Object> snapshot(
-            WorldStateDto state,
+            PlayerStateDto state,
             List<BuildingDto> buildings,
             List<Map<String, Object>> boats,
             List<Map<String, Object>> players,
@@ -29,7 +29,7 @@ public final class LiveEvents {
         );
     }
 
-    public static Map<String, Object> state(WorldStateDto state) {
+    public static Map<String, Object> state(PlayerStateDto state) {
         return event("state", "state", state);
     }
 
@@ -67,6 +67,12 @@ public final class LiveEvents {
 
     public static Map<String, Object> playerLanded(long userId, Point position) {
         return event("playerLanded", "userId", userId, "position", position);
+    }
+
+    /// Someone gathered from a node; it can't be used again for
+    /// [regrowsInMs].
+    public static Map<String, Object> nodeDepleted(long nodeId, long regrowsInMs) {
+        return event("nodeDepleted", "nodeId", nodeId, "regrowsInMs", regrowsInMs);
     }
 
     public static Map<String, Object> error(String message) {

@@ -205,6 +205,36 @@ class LiveWorldTest {
     }
 
     @Test
+    void gatheringIsSeenByEveryoneButOnlyTheGathererGetsTheBerries() throws Exception {
+        TestClient bob = connectAndJoin(bobId);
+        TestClient alice = connect(aliceId);
+        Map<String, Object> bush = list(alice.expect("snapshot"), "nodes").stream()
+                .filter(n -> "BERRY_BUSH".equals(n.get("type"))).findFirst().orElseThrow();
+        alice.send(Map.of("type", "join", "position", point(number(bush, "x"), number(bush, "y"))));
+        bob.expect("playerJoined");
+
+        alice.send(Map.of("type", "gather", "nodeId", number(bush, "id")));
+
+        Map<String, Object> depleted = bob.expect("nodeDepleted");
+        assertThat(number(depleted, "nodeId")).isEqualTo(number(bush, "id"));
+        assertThat(number(depleted, "regrowsInMs")).isPositive();
+        alice.expect("nodeDepleted");
+        assertThat(number(map(alice.expect("state"), "state"), "food")).isEqualTo(3);
+        bob.expectNothing();
+    }
+
+    @Test
+    void youCannotGatherFromABoat() throws Exception {
+        BoatDto boat = boatForAlice();
+        TestClient alice = connectAndJoin(aliceId);
+        alice.send(Map.of("type", "board", "boatId", boat.id()));
+
+        alice.send(Map.of("type", "gather", "nodeId", 1));
+
+        assertThat(alice.expect("error").get("message")).isEqualTo("Land on the island first");
+    }
+
+    @Test
     void unknownWorldIsRejected() throws Exception {
         TestClient alice = connectTo(worldId + 999_999, aliceId);
 

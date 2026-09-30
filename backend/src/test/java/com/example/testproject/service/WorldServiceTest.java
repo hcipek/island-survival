@@ -2,7 +2,7 @@ package com.example.testproject.service;
 
 import com.example.testproject.model.BuildingType;
 import com.example.testproject.model.PlayerResources;
-import com.example.testproject.model.dto.WorldStateDto;
+import com.example.testproject.model.dto.PlayerStateDto;
 import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
 import com.example.testproject.model.req.BuildingRequest;
@@ -232,7 +232,7 @@ class WorldServiceTest {
         return worldService.createBoat(worldId, new CreateBoatRequest(port.id(), aliceId));
     }
 
-    private WorldStateDto woodOf(long userId) {
+    private PlayerStateDto woodOf(long userId) {
         return worldService.getState(worldId, userId);
     }
 

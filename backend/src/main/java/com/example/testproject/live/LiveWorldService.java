@@ -6,6 +6,7 @@ import com.example.testproject.model.User;
 import com.example.testproject.repository.BoatRepository;
 import com.example.testproject.repository.PlayerPresenceRepository;
 import com.example.testproject.repository.UserRepository;
+import com.example.testproject.service.PlayerResourcesService;
 import com.example.testproject.service.ResourceNodeService;
 import com.example.testproject.service.WorldService;
 import org.springframework.http.HttpStatus;
@@ -36,6 +37,7 @@ public class LiveWorldService {
     private final WorldSessionRegistry registry;
     private final WorldService worldService;
     private final ResourceNodeService resourceNodeService;
+    private final PlayerResourcesService playerResourcesService;
     private final PlayerPresenceRepository playerPresenceRepository;
     private final BoatRepository boatRepository;
     private final UserRepository userRepository;
@@ -49,6 +51,7 @@ public class LiveWorldService {
             WorldSessionRegistry registry,
             WorldService worldService,
             ResourceNodeService resourceNodeService,
+            PlayerResourcesService playerResourcesService,
             PlayerPresenceRepository playerPresenceRepository,
             BoatRepository boatRepository,
             UserRepository userRepository
@@ -56,6 +59,7 @@ public class LiveWorldService {
         this.registry = registry;
         this.worldService = worldService;
         this.resourceNodeService = resourceNodeService;
+        this.playerResourcesService = playerResourcesService;
         this.playerPresenceRepository = playerPresenceRepository;
         this.boatRepository = boatRepository;
         this.userRepository = userRepository;
@@ -178,6 +182,25 @@ public class LiveWorldService {
 
     /// Everything [excludingUserId] needs to draw the world, with their own
     /// resources and everyone else in it.
+    /// Gathering by hand from a node the player is standing next to. Everyone
+    /// sees the node go bare; only the gatherer gets their new totals.
+    public void gather(WebSocketSession session, Long nodeId) {
+        long worldId = registry.worldIdOf(session);
+        long userId = registry.userIdOf(session);
+        requireJoined(session);
+        PlayerPresence presence = presenceOf(worldId, userId);
+        if (presence.getBoatId() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Land on the island first");
+        }
+
+        ResourceNodeService.GatherResult result =
+                resourceNodeService.gather(worldId, userId, nodeId, presence.getX(), presence.getY());
+
+        registry.broadcast(worldId, LiveEvents.nodeDepleted(
+                result.node().getId(), ResourceNodeService.regrowsInMillis(result.node(), Instant.now())));
+        playerResourcesService.sendStateTo(result.resources());
+    }
+
     private Map<String, Object> snapshot(long worldId, long excludingUserId) {
         List<Map<String, Object>> boats = boatRepository.findAllByWorldId(worldId).stream()
                 .map(b -> LiveEvents.boat(b.getId(), b.getOwnerId(), b.getX(), b.getY(), boatMovements.get(b.getId())))

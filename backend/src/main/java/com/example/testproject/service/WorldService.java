@@ -7,7 +7,7 @@ import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
 import com.example.testproject.model.dto.IslandLocationDto;
 import com.example.testproject.model.dto.WorldDto;
-import com.example.testproject.model.dto.WorldStateDto;
+import com.example.testproject.model.dto.PlayerStateDto;
 import com.example.testproject.model.req.BuildingRequest;
 import com.example.testproject.model.req.CreateBoatRequest;
 import com.example.testproject.model.req.CreateWorldRequest;
@@ -117,7 +117,7 @@ public class WorldService {
 
     /// [userId]'s resources in [worldId], with everything produced so far
     /// collected.
-    public WorldStateDto getState(long worldId, long userId) {
+    public PlayerStateDto getState(long worldId, long userId) {
         getWorldOrThrow(worldId);
         return playerResourcesService.stateOf(worldId, userId);
     }

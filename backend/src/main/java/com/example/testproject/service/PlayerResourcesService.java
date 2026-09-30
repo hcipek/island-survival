@@ -4,7 +4,7 @@ import com.example.testproject.live.LiveEvents;
 import com.example.testproject.live.WorldSessionRegistry;
 import com.example.testproject.model.BuildingType;
 import com.example.testproject.model.PlayerResources;
-import com.example.testproject.model.dto.WorldStateDto;
+import com.example.testproject.model.dto.PlayerStateDto;
 import com.example.testproject.repository.BuildingRepository;
 import com.example.testproject.repository.PlayerResourcesRepository;
 import org.springframework.http.HttpStatus;
@@ -39,7 +39,7 @@ public class PlayerResourcesService {
         this.sessionRegistry = sessionRegistry;
     }
 
-    public WorldStateDto stateOf(long worldId, long userId) {
+    public PlayerStateDto stateOf(long worldId, long userId) {
         return toStateDto(collected(worldId, userId));
     }
 
@@ -70,6 +70,16 @@ public class PlayerResourcesService {
         playerResourcesRepository.save(resources);
     }
 
+    public void addWood(PlayerResources resources, double amount) {
+        resources.setWood(resources.getWood() + amount);
+        playerResourcesRepository.save(resources);
+    }
+
+    public void addFood(PlayerResources resources, double amount) {
+        resources.setFood(resources.getFood() + amount);
+        playerResourcesRepository.save(resources);
+    }
+
     /// Resources are private, so the update goes only to that player's own
     /// connections (they may have the world open in several tabs).
     public void sendStateTo(PlayerResources resources) {
@@ -87,7 +97,11 @@ public class PlayerResourcesService {
         return lumberjacks * WOOD_PER_LUMBERJACK_PER_SECOND;
     }
 
-    private WorldStateDto toStateDto(PlayerResources resources) {
-        return new WorldStateDto(resources.getWood(), woodPerSecond(resources.getWorldId(), resources.getUserId()));
+    private PlayerStateDto toStateDto(PlayerResources resources) {
+        return new PlayerStateDto(
+                resources.getWood(),
+                woodPerSecond(resources.getWorldId(), resources.getUserId()),
+                resources.getFood()
+        );
     }
 }

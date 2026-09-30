@@ -1,12 +1,15 @@
 package com.example.testproject.service;
 
 import com.example.testproject.live.LiveEvents;
+import com.example.testproject.model.PlayerResources;
 import com.example.testproject.model.ResourceNode;
 import com.example.testproject.model.ResourceNodeType;
 import com.example.testproject.model.WorldIsland;
 import com.example.testproject.repository.ResourceNodeRepository;
 import com.example.testproject.repository.WorldIslandRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -14,10 +17,25 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
 
-/// The trees, berry bushes and sticks on each island.
+/// The trees, berry bushes and sticks on each island, and gathering from
+/// them by hand.
 @Service
 public class ResourceNodeService {
+
+    /// How close a player has to be standing. The client walks them to just
+    /// next to the node first, so this only has to allow a little slack.
+    private static final double GATHER_RANGE = 80;
+
+    /// The client shows a 2 second progress ring before asking; this is a
+    /// little shorter so normal play never trips it, but spamming does.
+    private static final Duration GATHER_COOLDOWN = Duration.ofMillis(1500);
+
+    private static final double FOOD_PER_BERRY_BUSH = 3;
+    private static final double WOOD_PER_STICKS = 2;
+    private static final Duration BERRY_BUSH_REGROW = Duration.ofMinutes(3);
+    private static final Duration STICKS_REGROW = Duration.ofMinutes(2);
 
     /// How many of each the home island gets - kept sparse, since that's
     /// where everyone builds.
@@ -39,14 +57,70 @@ public class ResourceNodeService {
 
     private final ResourceNodeRepository resourceNodeRepository;
     private final WorldIslandRepository worldIslandRepository;
+    private final PlayerResourcesService playerResourcesService;
     private final Random random = new Random();
+
+    /// When each player (by world and user) last gathered, for the cooldown.
+    private final Map<String, Instant> lastGatheredAt = new ConcurrentHashMap<>();
 
     public ResourceNodeService(
             ResourceNodeRepository resourceNodeRepository,
-            WorldIslandRepository worldIslandRepository
+            WorldIslandRepository worldIslandRepository,
+            PlayerResourcesService playerResourcesService
     ) {
         this.resourceNodeRepository = resourceNodeRepository;
         this.worldIslandRepository = worldIslandRepository;
+        this.playerResourcesService = playerResourcesService;
+    }
+
+    /// What gathering gave the player: the node (now regrowing) and their
+    /// updated resources.
+    public record GatherResult(ResourceNode node, PlayerResources resources) {
+    }
+
+    /// [userId], standing at ([x], [y]), gathers from [nodeId] by hand.
+    ///
+    /// Synchronized so two players reaching the same bush at the same moment
+    /// can't both get its berries.
+    public synchronized GatherResult gather(long worldId, long userId, Long nodeId, double x, double y) {
+        if (nodeId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "nodeId is required");
+        }
+        ResourceNode node = resourceNodeRepository.findById(nodeId)
+                .filter(n -> n.getWorldId().equals(worldId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Nothing to gather there"));
+        Instant now = Instant.now();
+
+        if (node.getType() == ResourceNodeType.TREE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "You'll need an axe to chop trees");
+        }
+        if (!node.isAvailable(now)) {
+            long seconds = Math.max(1, regrowsInMillis(node, now) / 1000);
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Already picked - it regrows in " + seconds + "s");
+        }
+        if (Math.hypot(node.getX() - x, node.getY() - y) > GATHER_RANGE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Walk up to it first");
+        }
+        String playerKey = worldId + ":" + userId;
+        Instant last = lastGatheredAt.get(playerKey);
+        if (last != null && Duration.between(last, now).compareTo(GATHER_COOLDOWN) < 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Still busy gathering");
+        }
+
+        PlayerResources resources = playerResourcesService.collected(worldId, userId);
+        switch (node.getType()) {
+            case BERRY_BUSH -> {
+                playerResourcesService.addFood(resources, FOOD_PER_BERRY_BUSH);
+                node.setDepletedUntil(now.plus(BERRY_BUSH_REGROW));
+            }
+            case STICKS -> {
+                playerResourcesService.addWood(resources, WOOD_PER_STICKS);
+                node.setDepletedUntil(now.plus(STICKS_REGROW));
+            }
+            case TREE -> throw new IllegalStateException("handled above");
+        }
+        lastGatheredAt.put(playerKey, now);
+        return new GatherResult(resourceNodeRepository.save(node), resources);
     }
 
     /// Places nodes on every island of [worldId] unless it already has
@@ -78,7 +152,7 @@ public class ResourceNodeService {
         resourceNodeRepository.deleteAll(resourceNodeRepository.findAllByWorldId(worldId));
     }
 
-    static long regrowsInMillis(ResourceNode node, Instant now) {
+    public static long regrowsInMillis(ResourceNode node, Instant now) {
         return node.isAvailable(now) ? 0 : Duration.between(now, node.getDepletedUntil()).toMillis();
     }
 
