@@ -115,6 +115,23 @@ public class WorldSessionRegistry {
         }
     }
 
+    /// Sends [event] only to [userId]'s own connections to [worldId], e.g.
+    /// their private resources.
+    public void sendToUser(long worldId, long userId, Map<String, Object> event) {
+        Set<WebSocketSession> sessions = sessionsByWorld.get(worldId);
+        if (sessions == null || sessions.isEmpty()) {
+            return;
+        }
+        TextMessage message = new TextMessage(jsonMapper.writeValueAsString(event));
+        synchronized (lockFor(worldId)) {
+            for (WebSocketSession session : sessions) {
+                if (Long.valueOf(userId).equals(userIdOf(session))) {
+                    sendRaw(session, message);
+                }
+            }
+        }
+    }
+
     public void send(WebSocketSession session, Map<String, Object> event) {
         sendRaw(session, new TextMessage(jsonMapper.writeValueAsString(event)));
     }

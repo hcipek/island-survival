@@ -61,9 +61,9 @@ public class LiveWorldService {
     /// world as it is right now. Its player isn't visible to others until it
     /// sends `join`.
     public void connect(WebSocketSession session, long worldId, long userId) {
-        worldService.getState(worldId); // fails fast if the world doesn't exist
         userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown user"));
+        worldService.getState(worldId, userId); // fails fast if the world doesn't exist
 
         synchronized (registry.lockFor(worldId)) {
             registry.register(worldId, userId, session);
@@ -172,6 +172,8 @@ public class LiveWorldService {
         registry.broadcastExcept(worldId, session, LiveEvents.playerLanded(userId, position));
     }
 
+    /// Everything [excludingUserId] needs to draw the world, with their own
+    /// resources and everyone else in it.
     private Map<String, Object> snapshot(long worldId, long excludingUserId) {
         List<Map<String, Object>> boats = boatRepository.findAllByWorldId(worldId).stream()
                 .map(b -> LiveEvents.boat(b.getId(), b.getOwnerId(), b.getX(), b.getY(), boatMovements.get(b.getId())))
@@ -184,7 +186,8 @@ public class LiveWorldService {
                 .map(this::playerView)
                 .toList();
 
-        return LiveEvents.snapshot(worldService.getState(worldId), worldService.getBuildings(worldId), boats, players);
+        return LiveEvents.snapshot(
+                worldService.getState(worldId, excludingUserId), worldService.getBuildings(worldId), boats, players);
     }
 
     private Map<String, Object> playerView(PlayerPresence presence) {

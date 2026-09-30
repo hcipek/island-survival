@@ -8,7 +8,7 @@ import java.util.List;
 
 public interface BuildingRepository extends JpaRepository<Building, Long> {
 
-    long countByWorldIdAndType(Long worldId, BuildingType type);
+    long countByWorldIdAndOwnerIdAndType(Long worldId, Long ownerId, BuildingType type);
 
     List<Building> findAllByWorldId(Long worldId);
 }

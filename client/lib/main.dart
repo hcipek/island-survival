@@ -833,6 +833,8 @@ class _IslandScreenState extends State<IslandScreen> {
   void _showBuildMenu() {
     final game = _game!;
     final messenger = ScaffoldMessenger.of(context);
+    // The limit is per player, so only our own lumberjacks count.
+    final canBuildLumberjack = !game.lumberjacks.any((l) => game.isOwnedByMe(l.ownerId));
     showModalBottomSheet(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -857,12 +859,12 @@ class _IslandScreenState extends State<IslandScreen> {
               leading: const Icon(Icons.forest),
               title: const Text('Lumberjack'),
               subtitle: Text(
-                game.lumberjacks.isEmpty
-                    ? 'Produces wood over time. Costs 20 wood. Placed inland.'
-                    : 'Already built (limit 1 for now)',
+                canBuildLumberjack
+                    ? 'Produces wood for you over time. Costs 20 wood. Placed inland.'
+                    : 'You already have one (limit 1 per player for now)',
               ),
-              enabled: game.lumberjacks.isEmpty,
-              onTap: game.lumberjacks.isEmpty
+              enabled: canBuildLumberjack,
+              onTap: canBuildLumberjack
                   ? () {
                       Navigator.pop(sheetContext);
                       game.startPlacing(BuildingType.lumberjack);

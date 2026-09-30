@@ -31,6 +31,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 /// End-to-end tests of the world socket: a real server on a random port,
 /// with real WebSocket clients playing Alice and Bob.
@@ -184,14 +185,21 @@ class LiveWorldTest {
     }
 
     @Test
-    void buildingsAndWoodChangesArePushed() throws Exception {
+    void buildingsArePushedToEveryoneButWoodOnlyToItsOwner() throws Exception {
+        TestClient alice = connect(aliceId);
+        alice.expect("snapshot");
         TestClient bob = connect(bobId);
         bob.expect("snapshot");
 
         worldService.createBuilding(worldId, new BuildingRequest(BuildingType.LUMBERJACK, 100, 0, aliceId));
 
+        assertThat(map(alice.expect("buildingAdded"), "building").get("type")).isEqualTo("LUMBERJACK");
+        Map<String, Object> state = map(alice.expect("state"), "state");
+        assertThat(number(state, "wood")).isCloseTo(0, within(0.1));
+        assertThat(number(state, "woodPerSecond")).isEqualTo(0.5);
+
         assertThat(map(bob.expect("buildingAdded"), "building").get("type")).isEqualTo("LUMBERJACK");
-        assertThat(number(map(bob.expect("state"), "state"), "woodPerSecond")).isEqualTo(0.5);
+        bob.expectNothing(); // Alice's wood is none of Bob's business
     }
 
     @Test
