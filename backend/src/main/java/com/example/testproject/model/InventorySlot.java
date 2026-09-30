@@ -1,8 +1,7 @@
 package com.example.testproject.model;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -23,8 +22,12 @@ public class InventorySlot {
     private Long userId;
     private int slotIndex;
 
-    @Enumerated(EnumType.STRING)
-    private ItemType item;
+    // The enum's name as plain text. Mapping the enum directly would make
+    // Hibernate restrict the column to the values that exist when the table
+    // is created (as a database enum or a check constraint) and never
+    // update that - so values added to the game later would be refused.
+    @Column(length = 32)
+    private String item;
 
     private int quantity;
 
@@ -35,7 +38,7 @@ public class InventorySlot {
         this.worldId = worldId;
         this.userId = userId;
         this.slotIndex = slotIndex;
-        this.item = item;
+        this.item = item.name();
         this.quantity = quantity;
     }
 
@@ -60,7 +63,7 @@ public class InventorySlot {
     }
 
     public ItemType getItem() {
-        return item;
+        return ItemType.valueOf(item);
     }
 
     public int getQuantity() {

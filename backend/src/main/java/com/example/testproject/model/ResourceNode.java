@@ -1,8 +1,7 @@
 package com.example.testproject.model;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -22,8 +21,12 @@ public class ResourceNode {
     private Long worldId;
     private Long islandId;
 
-    @Enumerated(EnumType.STRING)
-    private ResourceNodeType type;
+    // The enum's name as plain text. Mapping the enum directly would make
+    // Hibernate restrict the column to the values that exist when the table
+    // is created (as a database enum or a check constraint) and never
+    // update that - so values added to the game later would be refused.
+    @Column(length = 32)
+    private String type;
 
     private double x;
     private double y;
@@ -39,7 +42,7 @@ public class ResourceNode {
     public ResourceNode(Long worldId, Long islandId, ResourceNodeType type, double x, double y) {
         this.worldId = worldId;
         this.islandId = islandId;
-        this.type = type;
+        this.type = type.name();
         this.x = x;
         this.y = y;
     }
@@ -57,7 +60,7 @@ public class ResourceNode {
     }
 
     public ResourceNodeType getType() {
-        return type;
+        return ResourceNodeType.valueOf(type);
     }
 
     public double getX() {

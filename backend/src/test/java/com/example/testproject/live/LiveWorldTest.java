@@ -102,7 +102,8 @@ class LiveWorldTest {
 
     @Test
     void connectingSendsASnapshotOfTheWorld() throws Exception {
-        worldService.createBuilding(worldId, new BuildingRequest(BuildingType.PORT, 550, 0, aliceId));
+        holdHammer(bobId);
+        worldService.createBuilding(worldId, new BuildingRequest(BuildingType.PORT, 550, 0, bobId));
 
         Map<String, Object> snapshot = connect(aliceId).expect("snapshot");
 
@@ -210,6 +211,7 @@ class LiveWorldTest {
 
     @Test
     void buildingsArePushedToEveryoneButTheCostOnlyToItsOwner() throws Exception {
+        holdHammer(aliceId);
         inventoryService.add(worldId, aliceId, ItemType.WOOD, 25);
         TestClient alice = connect(aliceId);
         alice.expect("snapshot");
@@ -221,8 +223,7 @@ class LiveWorldTest {
         Map<String, Object> lumberjack = map(alice.expect("buildingAdded"), "building");
         assertThat(lumberjack.get("type")).isEqualTo("LUMBERJACK");
         assertThat(number(lumberjack, "woodPerSecond")).isEqualTo(0.1);
-        assertThat(number(list(map(alice.expect("inventory"), "inventory"), "slots").getFirst(), "quantity"))
-                .isEqualTo(5);
+        assertThat(number(slotWith("WOOD", alice.expect("inventory")), "quantity")).isEqualTo(5);
 
         assertThat(map(bob.expect("buildingAdded"), "building").get("type")).isEqualTo("LUMBERJACK");
         bob.expectNothing(); // Alice's inventory is none of Bob's business
@@ -230,6 +231,7 @@ class LiveWorldTest {
 
     @Test
     void collectingFromYourLumberjackIsSeenByEveryone() throws Exception {
+        holdHammer(aliceId);
         inventoryService.add(worldId, aliceId, ItemType.WOOD, 20);
         BuildingDto lumberjack = worldService.createBuilding(
                 worldId, new BuildingRequest(BuildingType.LUMBERJACK, 100, 0, aliceId));
@@ -247,9 +249,7 @@ class LiveWorldTest {
 
         assertThat(number(map(bob.expect("buildingUpdated"), "building"), "storedWood")).isCloseTo(0, within(0.1));
         alice.expect("buildingUpdated");
-        Map<String, Object> slot = list(map(alice.expect("inventory"), "inventory"), "slots").getFirst();
-        assertThat(slot.get("item")).isEqualTo("WOOD");
-        assertThat(number(slot, "quantity")).isEqualTo(10);
+        assertThat(number(slotWith("WOOD", alice.expect("inventory")), "quantity")).isEqualTo(10);
     }
 
     @Test
@@ -410,6 +410,19 @@ class LiveWorldTest {
         assertThat(alice.expect("error").get("message")).isEqualTo("World not found");
     }
 
+    /// Gives [userId] a hammer in their (still empty) first slot, which is
+    /// the one they hold - building needs it.
+    private void holdHammer(long userId) {
+        inventoryService.add(worldId, userId, ItemType.HAMMER, 1);
+    }
+
+    private static Map<String, Object> slotWith(String item, Map<String, Object> inventoryEvent) {
+        return list(map(inventoryEvent, "inventory"), "slots").stream()
+                .filter(slot -> item.equals(slot.get("item")))
+                .findFirst()
+                .orElseThrow();
+    }
+
     private static List<Map<String, Object>> sticksIn(Map<String, Object> snapshot) {
         return list(snapshot, "nodes").stream().filter(n -> "STICKS".equals(n.get("type"))).toList();
     }
@@ -423,6 +436,7 @@ class LiveWorldTest {
     }
 
     private BoatDto boatForAlice() {
+        holdHammer(aliceId);
         inventoryService.add(worldId, aliceId, ItemType.WOOD, 10);
         BuildingDto port = worldService.createBuilding(
                 worldId, new BuildingRequest(BuildingType.PORT, number(ON_SAND, "x"), 0, aliceId));

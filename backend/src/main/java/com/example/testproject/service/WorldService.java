@@ -160,12 +160,13 @@ public class WorldService {
         if (request.type() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Building type is required");
         }
+        requireHoldingHammer(worldId, owner.getId());
         requireValidPlacement(worldId, request);
         playerVitalsService.requireNotStarving(worldId, owner.getId());
 
         if (request.type() == BuildingType.LUMBERJACK) {
             long existing = buildingRepository.countByWorldIdAndOwnerIdAndType(
-                    worldId, owner.getId(), BuildingType.LUMBERJACK);
+                    worldId, owner.getId(), BuildingType.LUMBERJACK.name());
             if (existing >= MAX_LUMBERJACKS) {
                 throw new ResponseStatusException(
                         HttpStatus.CONFLICT,
@@ -210,6 +211,7 @@ public class WorldService {
         if (port.getOwnerId() != request.ownerId()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can only build boats at your own port");
         }
+        requireHoldingHammer(worldId, request.ownerId());
 
         playerVitalsService.requireNotStarving(worldId, request.ownerId());
         inventoryService.remove(worldId, request.ownerId(), ItemType.WOOD, BOAT_COST, "to build a boat");
@@ -291,6 +293,14 @@ public class WorldService {
                         distance(x, y, b.getCenterX(), b.getCenterY()) - b.getRadius()
                 ))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "World has no islands"));
+    }
+
+    /// Building anything takes a hammer in your hand - one in the bag
+    /// doesn't count.
+    private void requireHoldingHammer(long worldId, long userId) {
+        if (inventoryService.held(worldId, userId) != ItemType.HAMMER) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Hold a hammer to build");
+        }
     }
 
     /// Mirrors the client's placement preview: ports only on an island's

@@ -63,10 +63,33 @@ class WorldServiceTest {
         worldId = worldService.createWorld(new CreateWorldRequest("Test world")).id();
         aliceId = userService.createUser(new CreateUserRequest("Alice")).id();
         bobId = userService.createUser(new CreateUserRequest("Bob")).id();
+        // Building takes a hammer in your hand: into the first slot, which
+        // is the one held unless another is picked.
+        inventoryService.add(worldId, aliceId, ItemType.HAMMER, 1);
+        inventoryService.add(worldId, bobId, ItemType.HAMMER, 1);
     }
 
     @Test
-    void everyoneStartsEmptyHanded() {
+    void youNeedToHoldAHammerToBuild() {
+        inventoryService.select(worldId, aliceId, 3); // an empty hand
+
+        assertStatus(HttpStatus.CONFLICT, () -> build(BuildingType.PORT, ON_SAND));
+        assertThat(worldService.getBuildings(worldId)).isEmpty();
+    }
+
+    @Test
+    void youNeedToHoldAHammerToBuildABoat() {
+        BuildingDto port = build(BuildingType.PORT, ON_SAND);
+        give(aliceId, 10);
+        inventoryService.select(worldId, aliceId, 3);
+
+        assertStatus(HttpStatus.CONFLICT,
+                () -> worldService.createBoat(worldId, new CreateBoatRequest(port.id(), aliceId)));
+        assertThat(wood(aliceId)).isEqualTo(10);
+    }
+
+    @Test
+    void everyoneStartsWithoutWood() {
         assertThat(wood(aliceId)).isZero();
         assertThat(wood(bobId)).isZero();
     }
@@ -144,8 +167,9 @@ class WorldServiceTest {
     void collectingOnlyTakesWhatFitsInYourBag() {
         BuildingDto lumberjack = lumberjackForAlice();
         pretendProducingForSeconds(lumberjack, 100);
-        // Fill every slot but the last with stones, and that one with 45 wood.
-        for (int i = 0; i < InventoryService.SLOT_COUNT - 1; i++) {
+        // Fill every other slot with stones (the hammer has one), and the
+        // last with 45 wood.
+        for (int i = 0; i < InventoryService.SLOT_COUNT - 2; i++) {
             inventoryService.add(worldId, aliceId, ItemType.STONE, 50);
         }
         give(aliceId, 45);

@@ -5,7 +5,8 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-/// Removes database columns the code no longer has. Hibernate's `update`
+/// Brings older databases in line with the code: removes columns it no
+/// longer has, and loosens columns that would reject newer values. Hibernate's `update`
 /// mode adds new columns but never drops old ones - and the old shared
 /// `world.wood` was created NOT NULL, so leaving it would make creating a
 /// world fail.
@@ -32,5 +33,12 @@ public class LegacySchemaCleanup implements ApplicationRunner {
         jdbcTemplate.execute("ALTER TABLE player_resources DROP COLUMN IF EXISTS wood");
         jdbcTemplate.execute("ALTER TABLE player_resources DROP COLUMN IF EXISTS food");
         jdbcTemplate.execute("ALTER TABLE player_resources DROP COLUMN IF EXISTS last_collected_at");
+
+        // Type columns used to be created as database enums, fixed to the
+        // values that existed back then - so newer ones (like stones) were
+        // refused. Plain text accepts whatever the game adds later.
+        jdbcTemplate.execute("ALTER TABLE building ALTER COLUMN type SET DATA TYPE VARCHAR(32)");
+        jdbcTemplate.execute("ALTER TABLE resource_node ALTER COLUMN type SET DATA TYPE VARCHAR(32)");
+        jdbcTemplate.execute("ALTER TABLE inventory_slot ALTER COLUMN item SET DATA TYPE VARCHAR(32)");
     }
 }

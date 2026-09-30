@@ -268,6 +268,7 @@ class ResourceNodeServiceTest {
 
     @Test
     void sticksDoNotDropOnBuildings() {
+        inventoryService.add(worldId, aliceId, ItemType.HAMMER, 1); // held
         inventoryService.add(worldId, aliceId, ItemType.WOOD, 20);
         worldService.createBuilding(worldId,
                 new BuildingRequest(BuildingType.LUMBERJACK, 150, 150, aliceId));

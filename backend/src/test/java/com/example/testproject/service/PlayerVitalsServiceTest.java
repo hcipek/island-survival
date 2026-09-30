@@ -137,6 +137,7 @@ class PlayerVitalsServiceTest {
 
     @Test
     void starvingPlayersCannotBuild() {
+        inventoryService.add(worldId, aliceId, ItemType.HAMMER, 1); // held
         BuildingDto port = worldService.createBuilding(
                 worldId, new BuildingRequest(BuildingType.PORT, 550, 0, aliceId));
         inventoryService.add(worldId, aliceId, ItemType.WOOD, 50);

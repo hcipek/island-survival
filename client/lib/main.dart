@@ -976,6 +976,12 @@ class _IslandScreenState extends State<IslandScreen> {
       _showNotice("You're too hungry to build - pick some berries and eat first");
       return;
     }
+    if (_inventory.value.held?.item != ItemType.hammer) {
+      _showNotice(_inventory.value.count(ItemType.hammer) > 0
+          ? 'Hold your hammer to build - pick it in the quick-access bar'
+          : 'You need a hammer to build - craft one from 2 sticks and 3 stones');
+      return;
+    }
     // The limit is per player, so only our own lumberjacks count.
     final canBuildLumberjack = !game.lumberjacks.any((l) => game.isOwnedByMe(l.ownerId));
     showModalBottomSheet(
@@ -1175,6 +1181,10 @@ class _IslandScreenState extends State<IslandScreen> {
               enabled: isSaved,
               onTap: () {
                 Navigator.pop(sheetContext);
+                if (_inventory.value.held?.item != ItemType.hammer) {
+                  _showNotice('Hold a hammer to build a boat');
+                  return;
+                }
                 _game!.buildBoatFromPort(port);
               },
             ),
