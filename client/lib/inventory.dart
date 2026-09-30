@@ -7,23 +7,52 @@ import 'package:flutter/material.dart';
 enum ItemType { stick, stone, berry, wood, axe, hammer }
 
 ItemType itemTypeFromJson(String value) => switch (value) {
-      'STICK' => ItemType.stick,
-      'STONE' => ItemType.stone,
-      'BERRY' => ItemType.berry,
-      'WOOD' => ItemType.wood,
-      'AXE' => ItemType.axe,
-      'HAMMER' => ItemType.hammer,
-      _ => throw Exception('Unknown item: $value'),
-    };
+  'STICK' => ItemType.stick,
+  'STONE' => ItemType.stone,
+  'BERRY' => ItemType.berry,
+  'WOOD' => ItemType.wood,
+  'AXE' => ItemType.axe,
+  'HAMMER' => ItemType.hammer,
+  _ => throw Exception('Unknown item: $value'),
+};
 
 String itemName(ItemType item) => switch (item) {
-      ItemType.stick => 'Sticks',
-      ItemType.stone => 'Stones',
-      ItemType.berry => 'Berries',
-      ItemType.wood => 'Wood',
-      ItemType.axe => 'Axe',
-      ItemType.hammer => 'Hammer',
-    };
+  ItemType.stick => 'Sticks',
+  ItemType.stone => 'Stones',
+  ItemType.berry => 'Berries',
+  ItemType.wood => 'Wood',
+  ItemType.axe => 'Axe',
+  ItemType.hammer => 'Hammer',
+};
+
+/// The inventory's look: warm browns, so slots stand out clearly whatever
+/// they're drawn on.
+class InventoryColors {
+  /// Background of the bag and craft sheets.
+  static const panel = Color(0xFF8D6E63);
+
+  /// Background of the quick-access bar, over the game.
+  static const bar = Color(0xE64E342E);
+
+  static const slot = Color(0xFF5D4037);
+  static const slotHighlighted = Color(0xFF795548);
+  static const slotBorder = Color(0xFFD7B899);
+  static const text = Color(0xFFFFF3E0);
+
+  /// Light text and brown-tinted buttons, for content on [panel].
+  static ThemeData panelTheme(BuildContext context) {
+    final base = ThemeData(
+      colorSchemeSeed: Colors.brown,
+      brightness: Brightness.dark,
+      useMaterial3: true,
+    );
+    return base.copyWith(
+      textTheme: base.textTheme.apply(bodyColor: text, displayColor: text),
+      iconTheme: const IconThemeData(color: text),
+      listTileTheme: const ListTileThemeData(textColor: text, iconColor: text),
+    );
+  }
+}
 
 class ItemStack {
   final ItemType item;
@@ -48,7 +77,12 @@ class InventoryState {
     required this.bagSize,
   });
 
-  static const empty = InventoryState(slots: {}, selectedSlot: 0, hotbarSize: 10, bagSize: 40);
+  static const empty = InventoryState(
+    slots: {},
+    selectedSlot: 0,
+    hotbarSize: 10,
+    bagSize: 40,
+  );
 
   factory InventoryState.fromJson(Map<String, dynamic> json) {
     return InventoryState(
@@ -68,11 +102,16 @@ class InventoryState {
   /// What's in the player's hand, if anything.
   ItemStack? get held => slots[selectedSlot];
 
-  int count(ItemType item) =>
-      slots.values.where((s) => s.item == item).fold(0, (sum, s) => sum + s.quantity);
+  int count(ItemType item) => slots.values
+      .where((s) => s.item == item)
+      .fold(0, (sum, s) => sum + s.quantity);
 
-  InventoryState withSelected(int slot) =>
-      InventoryState(slots: slots, selectedSlot: slot, hotbarSize: hotbarSize, bagSize: bagSize);
+  InventoryState withSelected(int slot) => InventoryState(
+    slots: slots,
+    selectedSlot: slot,
+    hotbarSize: hotbarSize,
+    bagSize: bagSize,
+  );
 }
 
 /// The quick-access bar along the bottom of the screen: tap a slot (or press
@@ -93,49 +132,58 @@ class Hotbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      // Shrinks to fit phone screens: 10 slots plus the bag and craft buttons.
-      final slotSize = min(48.0, (constraints.maxWidth - 28) / (inventory.hotbarSize + 2) - 4);
-      return Card(
-        color: Colors.black.withValues(alpha: 0.55),
-        child: Padding(
-          padding: const EdgeInsets.all(6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (var i = 0; i < inventory.hotbarSize; i++)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: ItemSlot(
-                    stack: inventory.slots[i],
-                    size: slotSize,
-                    highlighted: i == inventory.selectedSlot,
-                    label: '${(i + 1) % 10}',
-                    onTap: () => onSelect(i),
-                  ),
-                ),
-              for (final (tooltip, icon, onPressed) in [
-                ('Open bag', Icons.backpack, onOpenBag),
-                ('Craft', Icons.handyman, onOpenCraft),
-              ])
-                Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: SizedBox(
-                    width: slotSize,
-                    height: slotSize,
-                    child: IconButton.filledTonal(
-                      padding: EdgeInsets.zero,
-                      tooltip: tooltip,
-                      onPressed: onPressed,
-                      icon: Icon(icon, size: slotSize * 0.55),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Shrinks to fit phone screens: 10 slots plus the bag and craft buttons.
+        final slotSize = min(
+          48.0,
+          (constraints.maxWidth - 28) / (inventory.hotbarSize + 2) - 4,
+        );
+        return Card(
+          color: InventoryColors.bar,
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < inventory.hotbarSize; i++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: ItemSlot(
+                      stack: inventory.slots[i],
+                      size: slotSize,
+                      highlighted: i == inventory.selectedSlot,
+                      label: '${(i + 1) % 10}',
+                      onTap: () => onSelect(i),
                     ),
                   ),
-                ),
-            ],
+                for (final (tooltip, icon, onPressed) in [
+                  ('Open bag', Icons.backpack, onOpenBag),
+                  ('Craft', Icons.handyman, onOpenCraft),
+                ])
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: SizedBox(
+                      width: slotSize,
+                      height: slotSize,
+                      child: IconButton.filled(
+                        padding: EdgeInsets.zero,
+                        tooltip: tooltip,
+                        onPressed: onPressed,
+                        style: IconButton.styleFrom(
+                          backgroundColor: InventoryColors.slotBorder,
+                          foregroundColor: InventoryColors.slot,
+                        ),
+                        icon: Icon(icon, size: slotSize * 0.55),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   }
 }
 
@@ -167,22 +215,34 @@ class ItemSlot extends StatelessWidget {
           width: size,
           height: size,
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: highlighted ? 0.28 : 0.12),
+            color: highlighted
+                ? InventoryColors.slotHighlighted
+                : InventoryColors.slot,
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
-              color: highlighted ? Colors.amberAccent : Colors.white24,
+              color: highlighted
+                  ? Colors.amberAccent
+                  : InventoryColors.slotBorder.withValues(alpha: 0.6),
               width: highlighted ? 2.5 : 1,
             ),
           ),
           child: Stack(
             children: [
               if (stack != null)
-                Center(child: ItemIcon(item: stack.item, size: size * 0.7)),
+                Center(
+                  child: ItemIcon(item: stack.item, size: size * 0.7),
+                ),
               if (label != null)
                 Positioned(
                   left: 3,
                   top: 1,
-                  child: Text(label!, style: TextStyle(color: Colors.white54, fontSize: size * 0.2)),
+                  child: Text(
+                    label!,
+                    style: TextStyle(
+                      color: InventoryColors.text.withValues(alpha: 0.6),
+                      fontSize: size * 0.2,
+                    ),
+                  ),
                 ),
               if (stack != null && stack.quantity > 1)
                 Positioned(
@@ -191,7 +251,7 @@ class ItemSlot extends StatelessWidget {
                   child: Text(
                     '${stack.quantity}',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: InventoryColors.text,
                       fontSize: size * 0.26,
                       fontWeight: FontWeight.bold,
                       shadows: const [Shadow(blurRadius: 2)],
@@ -214,7 +274,12 @@ class BagSheet extends StatefulWidget {
   final void Function(int from, int to) onMove;
   final ValueChanged<int> onDiscard;
 
-  const BagSheet({super.key, required this.inventory, required this.onMove, required this.onDiscard});
+  const BagSheet({
+    super.key,
+    required this.inventory,
+    required this.onMove,
+    required this.onDiscard,
+  });
 
   @override
   State<BagSheet> createState() => _BagSheetState();
@@ -240,12 +305,18 @@ class _BagSheetState extends State<BagSheet> {
       builder: (context, inventory, _) {
         final picked = _picked;
         final pickedStack = picked == null ? null : inventory.slots[picked];
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child: LayoutBuilder(builder: (context, constraints) {
-              final slotSize = min(52.0, (constraints.maxWidth - 9 * 6) / 10);
-              Widget row(int first) => Row(
+        return Theme(
+          data: InventoryColors.panelTheme(context),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final slotSize = min(
+                    52.0,
+                    (constraints.maxWidth - 9 * 6) / 10,
+                  );
+                  Widget row(int first) => Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       for (var i = first; i < first + 10; i++)
@@ -260,40 +331,66 @@ class _BagSheetState extends State<BagSheet> {
                         ),
                     ],
                   );
-              final total = inventory.hotbarSize + inventory.bagSize;
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+                  final total = inventory.hotbarSize + inventory.bagSize;
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Inventory', style: Theme.of(context).textTheme.titleLarge),
-                      const Spacer(),
-                      if (pickedStack != null)
-                        TextButton.icon(
-                          onPressed: () {
-                            widget.onDiscard(picked!);
-                            setState(() => _picked = null);
-                          },
-                          icon: const Icon(Icons.delete_outline, color: Colors.red),
-                          label: Text('Throw away ${itemName(pickedStack.item).toLowerCase()}'),
-                        ),
-                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                      Row(
+                        children: [
+                          Text(
+                            'Inventory',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const Spacer(),
+                          if (pickedStack != null)
+                            TextButton.icon(
+                              onPressed: () {
+                                widget.onDiscard(picked!);
+                                setState(() => _picked = null);
+                              },
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                color: Colors.red,
+                              ),
+                              label: Text(
+                                'Throw away ${itemName(pickedStack.item).toLowerCase()}',
+                              ),
+                            ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        picked == null
+                            ? 'Tap an item to move it'
+                            : 'Now tap where it should go',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Quick access',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      row(0),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Bag',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      for (
+                        var first = inventory.hotbarSize;
+                        first < total;
+                        first += 10
+                      )
+                        row(first),
                     ],
-                  ),
-                  Text(
-                    picked == null ? 'Tap an item to move it' : 'Now tap where it should go',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 8),
-                  Text('Quick access', style: Theme.of(context).textTheme.labelLarge),
-                  row(0),
-                  const SizedBox(height: 8),
-                  Text('Bag', style: Theme.of(context).textTheme.labelLarge),
-                  for (var first = inventory.hotbarSize; first < total; first += 10) row(first),
-                ],
-              );
-            }),
+                  );
+                },
+              ),
+            ),
           ),
         );
       },
@@ -310,7 +407,7 @@ class ItemIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(size: Size.square(size), painter: _ItemPainter(item));
+    return SizedBox.square(dimension: size, child: CustomPaint(painter: _ItemPainter(item)));
   }
 }
 
@@ -326,14 +423,23 @@ class _ItemPainter extends CustomPainter {
       ..color = color
       ..strokeWidth = w * width
       ..strokeCap = StrokeCap.round;
-    const brown = Color(0xFF8D6E63);
-    const darkBrown = Color(0xFF5D4037);
+    // Light enough to stand out on the dark-brown slots.
+    const brown = Color(0xFFC8A27A);
+    const darkBrown = Color(0xFF6D4C41);
     const grey = Color(0xFF9E9E9E);
 
     switch (item) {
       case ItemType.stick:
-        canvas.drawLine(Offset(w * 0.15, w * 0.8), Offset(w * 0.85, w * 0.25), stroke(brown, 0.1));
-        canvas.drawLine(Offset(w * 0.2, w * 0.3), Offset(w * 0.8, w * 0.85), stroke(brown, 0.1));
+        canvas.drawLine(
+          Offset(w * 0.15, w * 0.8),
+          Offset(w * 0.85, w * 0.25),
+          stroke(brown, 0.1),
+        );
+        canvas.drawLine(
+          Offset(w * 0.2, w * 0.3),
+          Offset(w * 0.8, w * 0.85),
+          stroke(brown, 0.1),
+        );
       case ItemType.stone:
         final path = Path()
           ..moveTo(w * 0.2, w * 0.65)
@@ -344,20 +450,41 @@ class _ItemPainter extends CustomPainter {
           ..lineTo(w * 0.5, w * 0.82)
           ..close();
         canvas.drawPath(path, Paint()..color = grey);
-        canvas.drawLine(Offset(w * 0.4, w * 0.4), Offset(w * 0.55, w * 0.35), stroke(Colors.white38, 0.05));
+        canvas.drawLine(
+          Offset(w * 0.4, w * 0.4),
+          Offset(w * 0.55, w * 0.35),
+          stroke(Colors.white38, 0.05),
+        );
       case ItemType.berry:
         final red = Paint()..color = const Color(0xFFD32F2F);
         canvas.drawCircle(Offset(w * 0.38, w * 0.6), w * 0.17, red);
         canvas.drawCircle(Offset(w * 0.64, w * 0.62), w * 0.17, red);
         canvas.drawCircle(Offset(w * 0.5, w * 0.38), w * 0.17, red);
-        canvas.drawLine(Offset(w * 0.5, w * 0.22), Offset(w * 0.68, w * 0.12), stroke(const Color(0xFF388E3C), 0.08));
+        canvas.drawLine(
+          Offset(w * 0.5, w * 0.22),
+          Offset(w * 0.68, w * 0.12),
+          stroke(const Color(0xFF388E3C), 0.08),
+        );
       case ItemType.wood:
-        final log = RRect.fromRectAndRadius(Rect.fromLTWH(w * 0.1, w * 0.35, w * 0.7, w * 0.32), Radius.circular(w * 0.08));
+        final log = RRect.fromRectAndRadius(
+          Rect.fromLTWH(w * 0.1, w * 0.35, w * 0.7, w * 0.32),
+          Radius.circular(w * 0.08),
+        );
         canvas.drawRRect(log, Paint()..color = brown);
-        canvas.drawOval(Rect.fromLTWH(w * 0.66, w * 0.33, w * 0.22, w * 0.36), Paint()..color = const Color(0xFFD7B899));
-        canvas.drawOval(Rect.fromLTWH(w * 0.72, w * 0.43, w * 0.1, w * 0.16), Paint()..color = darkBrown);
+        canvas.drawOval(
+          Rect.fromLTWH(w * 0.66, w * 0.33, w * 0.22, w * 0.36),
+          Paint()..color = const Color(0xFFD7B899),
+        );
+        canvas.drawOval(
+          Rect.fromLTWH(w * 0.72, w * 0.43, w * 0.1, w * 0.16),
+          Paint()..color = darkBrown,
+        );
       case ItemType.axe:
-        canvas.drawLine(Offset(w * 0.3, w * 0.88), Offset(w * 0.62, w * 0.15), stroke(brown, 0.1));
+        canvas.drawLine(
+          Offset(w * 0.3, w * 0.88),
+          Offset(w * 0.62, w * 0.15),
+          stroke(brown, 0.1),
+        );
         final blade = Path()
           ..moveTo(w * 0.55, w * 0.18)
           ..lineTo(w * 0.88, w * 0.22)
@@ -366,8 +493,15 @@ class _ItemPainter extends CustomPainter {
           ..close();
         canvas.drawPath(blade, Paint()..color = grey);
       case ItemType.hammer:
-        canvas.drawLine(Offset(w * 0.5, w * 0.9), Offset(w * 0.5, w * 0.3), stroke(brown, 0.1));
-        final head = RRect.fromRectAndRadius(Rect.fromLTWH(w * 0.2, w * 0.12, w * 0.6, w * 0.24), Radius.circular(w * 0.05));
+        canvas.drawLine(
+          Offset(w * 0.5, w * 0.9),
+          Offset(w * 0.5, w * 0.3),
+          stroke(brown, 0.1),
+        );
+        final head = RRect.fromRectAndRadius(
+          Rect.fromLTWH(w * 0.2, w * 0.12, w * 0.6, w * 0.24),
+          Radius.circular(w * 0.05),
+        );
         canvas.drawRRect(head, Paint()..color = grey);
     }
   }
@@ -382,7 +516,11 @@ class Recipe {
   final ItemType output;
   final List<ItemStack> ingredients;
 
-  const Recipe({required this.id, required this.output, required this.ingredients});
+  const Recipe({
+    required this.id,
+    required this.output,
+    required this.ingredients,
+  });
 
   factory Recipe.fromJson(Map<String, dynamic> json) {
     return Recipe(
@@ -391,7 +529,9 @@ class Recipe {
       ingredients: [
         for (final ingredient in json['ingredients'] as List<dynamic>)
           ItemStack(
-            itemTypeFromJson((ingredient as Map<String, dynamic>)['item'] as String),
+            itemTypeFromJson(
+              (ingredient as Map<String, dynamic>)['item'] as String,
+            ),
             ingredient['quantity'] as int,
           ),
       ],
@@ -409,59 +549,77 @@ class CraftSheet extends StatelessWidget {
   final ValueNotifier<InventoryState> inventory;
   final ValueChanged<Recipe> onCraft;
 
-  const CraftSheet({super.key, required this.recipes, required this.inventory, required this.onCraft});
+  const CraftSheet({
+    super.key,
+    required this.recipes,
+    required this.inventory,
+    required this.onCraft,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<InventoryState>(
       valueListenable: inventory,
-      builder: (context, inventory, _) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Text('Craft', style: Theme.of(context).textTheme.titleLarge),
-                  const Spacer(),
-                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
-                ],
-              ),
-              for (final recipe in recipes)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: ItemIcon(item: recipe.output, size: 36),
-                  title: Text(itemName(recipe.output)),
-                  subtitle: Wrap(
-                    spacing: 12,
-                    children: [
-                      for (final ingredient in recipe.ingredients)
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            ItemIcon(item: ingredient.item, size: 18),
-                            const SizedBox(width: 4),
-                            Text(
-                              '${inventory.count(ingredient.item)}/${ingredient.quantity}',
-                              style: TextStyle(
-                                color: inventory.count(ingredient.item) >= ingredient.quantity
-                                    ? null
-                                    : Colors.redAccent,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                  trailing: FilledButton(
-                    onPressed: recipe.canMake(inventory) ? () => onCraft(recipe) : null,
-                    child: const Text('Craft'),
-                  ),
+      builder: (context, inventory, _) => Theme(
+        data: InventoryColors.panelTheme(context),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'Craft',
+                      style: InventoryColors.panelTheme(context).textTheme.titleLarge,
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
                 ),
-            ],
+                for (final recipe in recipes)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: ItemIcon(item: recipe.output, size: 36),
+                    title: Text(itemName(recipe.output)),
+                    subtitle: Wrap(
+                      spacing: 12,
+                      children: [
+                        for (final ingredient in recipe.ingredients)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ItemIcon(item: ingredient.item, size: 18),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${inventory.count(ingredient.item)}/${ingredient.quantity}',
+                                style: TextStyle(
+                                  color:
+                                      inventory.count(ingredient.item) >=
+                                          ingredient.quantity
+                                      ? null
+                                      : const Color(0xFFFFAB91),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                    trailing: FilledButton(
+                      onPressed: recipe.canMake(inventory)
+                          ? () => onCraft(recipe)
+                          : null,
+                      child: const Text('Craft'),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

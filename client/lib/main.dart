@@ -779,6 +779,7 @@ class _IslandScreenState extends State<IslandScreen> {
   void _openCraft() {
     showModalBottomSheet(
       context: context,
+      backgroundColor: InventoryColors.panel,
       builder: (_) => CraftSheet(
         recipes: _recipes,
         inventory: _inventory,
@@ -791,6 +792,7 @@ class _IslandScreenState extends State<IslandScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: InventoryColors.panel,
       builder: (_) => BagSheet(
         inventory: _inventory,
         onMove: (from, to) => _send({'type': 'moveItem', 'fromSlot': from, 'toSlot': to}),
