@@ -380,7 +380,7 @@ class LiveWorldTest {
 
     @Test
     void rearrangingAndThrowingAwayItems() throws Exception {
-        inventoryService.add(worldId, aliceId, ItemType.STICK, 5); // slot 0
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 5); // slot 0
         TestClient alice = connectAndJoin(aliceId);
 
         alice.send(Map.of("type", "moveItem", "fromSlot", 0, "toSlot", 15));
@@ -393,7 +393,7 @@ class LiveWorldTest {
 
     @Test
     void craftingAnAxeOverTheSocket() throws Exception {
-        inventoryService.add(worldId, aliceId, ItemType.STICK, 3);
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 3);
         inventoryService.add(worldId, aliceId, ItemType.STONE, 2);
         TestClient alice = connectAndJoin(aliceId);
 

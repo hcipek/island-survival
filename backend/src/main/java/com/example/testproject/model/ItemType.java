@@ -1,8 +1,10 @@
 package com.example.testproject.model;
 
 /// Everything that can go in an inventory slot, and how many fit in one.
+///
+/// Different sources can give the same item: sticks on the ground, chopped
+/// trees and lumberjacks all give [WOOD].
 public enum ItemType {
-    STICK(Kind.RESOURCE),
     STONE(Kind.RESOURCE),
     BERRY(Kind.RESOURCE),
     WOOD(Kind.RESOURCE),

@@ -40,50 +40,50 @@ class CraftingServiceTest {
     }
 
     @Test
-    void anAxeIsMadeFromThreeSticksAndTwoStones() {
-        give(ItemType.STICK, 5);
+    void anAxeIsMadeFromThreeWoodAndTwoStones() {
+        give(ItemType.WOOD, 5);
         give(ItemType.STONE, 2);
 
         craftingService.craft(worldId, aliceId, "AXE");
 
         assertThat(count(ItemType.AXE)).isEqualTo(1);
-        assertThat(count(ItemType.STICK)).isEqualTo(2);
+        assertThat(count(ItemType.WOOD)).isEqualTo(2);
         assertThat(count(ItemType.STONE)).isZero();
     }
 
     @Test
-    void aHammerIsMadeFromTwoSticksAndThreeStones() {
-        give(ItemType.STICK, 2);
+    void aHammerIsMadeFromTwoWoodAndThreeStones() {
+        give(ItemType.WOOD, 2);
         give(ItemType.STONE, 3);
 
         craftingService.craft(worldId, aliceId, "HAMMER");
 
         assertThat(count(ItemType.HAMMER)).isEqualTo(1);
-        assertThat(count(ItemType.STICK)).isZero();
+        assertThat(count(ItemType.WOOD)).isZero();
         assertThat(count(ItemType.STONE)).isZero();
     }
 
     @Test
     void missingIngredientsMeanNothingIsUsedUp() {
-        give(ItemType.STICK, 3);
+        give(ItemType.WOOD, 3);
         give(ItemType.STONE, 1);
 
         assertThatThrownBy(() -> craftingService.craft(worldId, aliceId, "AXE"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Not enough stone to make axe (need 2, have 1)");
-        assertThat(count(ItemType.STICK)).isEqualTo(3);
+        assertThat(count(ItemType.WOOD)).isEqualTo(3);
         assertThat(count(ItemType.STONE)).isEqualTo(1);
     }
 
     @Test
     void aFullBagMeansNothingIsUsedUp() {
-        give(ItemType.STICK, 50 * 25);
+        give(ItemType.WOOD, 50 * 25);
         give(ItemType.STONE, 50 * 25); // every slot is a full stack now
 
         assertThatThrownBy(() -> craftingService.craft(worldId, aliceId, "AXE"))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         e -> assertThat(e.getReason()).isEqualTo("Make room in your bag first"));
-        assertThat(count(ItemType.STICK)).isEqualTo(50 * 25);
+        assertThat(count(ItemType.WOOD)).isEqualTo(50 * 25);
     }
 
     @Test

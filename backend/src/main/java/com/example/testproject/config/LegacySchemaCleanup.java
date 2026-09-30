@@ -40,5 +40,9 @@ public class LegacySchemaCleanup implements ApplicationRunner {
         jdbcTemplate.execute("ALTER TABLE building ALTER COLUMN type SET DATA TYPE VARCHAR(32)");
         jdbcTemplate.execute("ALTER TABLE resource_node ALTER COLUMN type SET DATA TYPE VARCHAR(32)");
         jdbcTemplate.execute("ALTER TABLE inventory_slot ALTER COLUMN item SET DATA TYPE VARCHAR(32)");
+
+        // Sticks used to be their own item; they're wood now. (Each stack
+        // stays in its slot, just as wood.)
+        jdbcTemplate.update("UPDATE inventory_slot SET item = 'WOOD' WHERE item = 'STICK'");
     }
 }

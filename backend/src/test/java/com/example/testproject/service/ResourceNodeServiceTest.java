@@ -167,7 +167,7 @@ class ResourceNodeServiceTest {
     void pickingUpSticksGivesWood() {
         gatherStandingOn(aliceId, first(ResourceNodeType.STICKS));
 
-        assertThat(inventoryService.count(worldId, aliceId, ItemType.STICK)).isEqualTo(2);
+        assertThat(inventoryService.count(worldId, aliceId, ItemType.WOOD)).isEqualTo(2);
     }
 
     @Test
@@ -343,7 +343,7 @@ class ResourceNodeServiceTest {
         ResourceNode tree = first(ResourceNodeType.TREE);
         assertStatus(HttpStatus.CONFLICT, () -> gatherStandingOn(aliceId, tree));
 
-        inventoryService.add(worldId, aliceId, ItemType.STICK, 5); // slot 0, held
+        inventoryService.add(worldId, aliceId, ItemType.STONE, 5); // slot 0, held
         inventoryService.add(worldId, aliceId, ItemType.AXE, 1);   // slot 1, in the bar but not held
         assertStatus(HttpStatus.CONFLICT, () -> gatherStandingOn(aliceId, tree));
 

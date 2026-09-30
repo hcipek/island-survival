@@ -375,7 +375,7 @@ class _IslandScreenState extends State<IslandScreen> {
     if (_inventory.value.held?.item != ItemType.hammer) {
       _showNotice(_inventory.value.count(ItemType.hammer) > 0
           ? 'Hold your hammer to build - pick it in the quick-access bar'
-          : 'You need a hammer to build - craft one from 2 sticks and 3 stones');
+          : 'You need a hammer to build - craft one from 2 wood and 3 stones');
       return;
     }
     // The limit is per player, so only our own lumberjacks count.

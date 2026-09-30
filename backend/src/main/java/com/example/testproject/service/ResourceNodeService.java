@@ -40,7 +40,8 @@ public class ResourceNodeService {
     private static final Duration GATHER_COOLDOWN = Duration.ofMillis(1500);
 
     private static final int BERRIES_PER_BUSH = 3;
-    private static final int STICKS_PER_PILE = 2;
+    /// A pile of sticks is just a little wood.
+    private static final int WOOD_PER_STICK_PILE = 2;
     /// Stones are scarcer than sticks: one each.
     private static final int STONES_PER_PILE = 1;
     private static final Duration BERRY_BUSH_REGROW = Duration.ofMinutes(3);
@@ -159,7 +160,7 @@ public class ResourceNodeService {
                 // Berries are allowed while starving - otherwise you could
                 // never recover.
                 playerVitalsService.requireNotStarving(worldId, userId);
-                inventoryService.add(worldId, userId, ItemType.STICK, STICKS_PER_PILE);
+                inventoryService.add(worldId, userId, ItemType.WOOD, WOOD_PER_STICK_PILE);
                 resourceNodeRepository.delete(node);
                 yield new GatherResult(node, true);
             }

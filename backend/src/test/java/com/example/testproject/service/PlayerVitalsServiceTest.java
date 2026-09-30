@@ -160,7 +160,7 @@ class PlayerVitalsServiceTest {
         resourceNodeService.gather(worldId, aliceId, bush.getId(), bush.getX(), bush.getY());
 
         assertThat(inventoryService.count(worldId, aliceId, ItemType.BERRY)).isEqualTo(3);
-        assertThat(inventoryService.count(worldId, aliceId, ItemType.STICK)).isZero();
+        assertThat(inventoryService.count(worldId, aliceId, ItemType.WOOD)).isZero();
     }
 
     @Test

@@ -46,6 +46,18 @@ class TypeColumnsTest {
         jdbcTemplate.update("INSERT INTO building (world_id, owner_id, type, x, y, stored_wood) VALUES (1, 1, 'SOME_FUTURE_TYPE', 0, 0, 0)");
     }
 
+    @Test
+    void cleanupTurnsOldSticksIntoWood() throws Exception {
+        jdbcTemplate.update(
+                "INSERT INTO inventory_slot (world_id, user_id, slot_index, item, quantity) VALUES (1, 1, 7, 'STICK', 12)");
+
+        new LegacySchemaCleanup(jdbcTemplate).run(null);
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT item FROM inventory_slot WHERE world_id = 1 AND user_id = 1 AND slot_index = 7", String.class))
+                .isEqualTo("WOOD");
+    }
+
     private String dataType(String table, String column) {
         return jdbcTemplate.queryForObject(
                 "SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND COLUMN_NAME = ?",

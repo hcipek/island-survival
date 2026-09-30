@@ -3,11 +3,11 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 /// Everything that can go in an inventory slot. Mirrors the server's
-/// `ItemType`.
-enum ItemType { stick, stone, berry, wood, axe, hammer }
+/// `ItemType`. (Sticks on the ground, chopped trees and lumberjacks all
+/// give wood.)
+enum ItemType { stone, berry, wood, axe, hammer }
 
 ItemType itemTypeFromJson(String value) => switch (value) {
-  'STICK' => ItemType.stick,
   'STONE' => ItemType.stone,
   'BERRY' => ItemType.berry,
   'WOOD' => ItemType.wood,
@@ -17,7 +17,6 @@ ItemType itemTypeFromJson(String value) => switch (value) {
 };
 
 String itemName(ItemType item) => switch (item) {
-  ItemType.stick => 'Sticks',
   ItemType.stone => 'Stones',
   ItemType.berry => 'Berries',
   ItemType.wood => 'Wood',
@@ -429,17 +428,6 @@ class _ItemPainter extends CustomPainter {
     const grey = Color(0xFF9E9E9E);
 
     switch (item) {
-      case ItemType.stick:
-        canvas.drawLine(
-          Offset(w * 0.15, w * 0.8),
-          Offset(w * 0.85, w * 0.25),
-          stroke(brown, 0.1),
-        );
-        canvas.drawLine(
-          Offset(w * 0.2, w * 0.3),
-          Offset(w * 0.8, w * 0.85),
-          stroke(brown, 0.1),
-        );
       case ItemType.stone:
         final path = Path()
           ..moveTo(w * 0.2, w * 0.65)

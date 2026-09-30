@@ -46,27 +46,27 @@ class InventoryServiceTest {
 
     @Test
     void resourcesStackUpTo50PerSlotStartingInTheQuickAccessBar() {
-        inventoryService.add(worldId, aliceId, ItemType.STICK, 120);
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 120);
 
         assertThat(slots()).extracting(InventorySlot::getSlotIndex, InventorySlot::getItem, InventorySlot::getQuantity)
                 .containsExactly(
-                        tuple(0, ItemType.STICK, 50),
-                        tuple(1, ItemType.STICK, 50),
-                        tuple(2, ItemType.STICK, 20));
+                        tuple(0, ItemType.WOOD, 50),
+                        tuple(1, ItemType.WOOD, 50),
+                        tuple(2, ItemType.WOOD, 20));
     }
 
     @Test
     void addingTopsUpExistingStacksBeforeUsingNewSlots() {
-        inventoryService.add(worldId, aliceId, ItemType.STICK, 30);
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 30);
         inventoryService.add(worldId, aliceId, ItemType.STONE, 5);
 
-        inventoryService.add(worldId, aliceId, ItemType.STICK, 30);
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 30);
 
         assertThat(slots()).extracting(InventorySlot::getSlotIndex, InventorySlot::getItem, InventorySlot::getQuantity)
                 .containsExactly(
-                        tuple(0, ItemType.STICK, 50),
+                        tuple(0, ItemType.WOOD, 50),
                         tuple(1, ItemType.STONE, 5),
-                        tuple(2, ItemType.STICK, 10));
+                        tuple(2, ItemType.WOOD, 10));
     }
 
     @Test
@@ -81,18 +81,18 @@ class InventoryServiceTest {
         inventoryService.add(worldId, aliceId, ItemType.STONE, 50 * InventoryService.SLOT_COUNT);
 
         assertThat(slots()).hasSize(50);
-        assertStatus(HttpStatus.CONFLICT, () -> inventoryService.add(worldId, aliceId, ItemType.STICK, 1));
+        assertStatus(HttpStatus.CONFLICT, () -> inventoryService.add(worldId, aliceId, ItemType.WOOD, 1));
     }
 
     @Test
     void anAddThatDoesNotFullyFitChangesNothing() {
         inventoryService.add(worldId, aliceId, ItemType.STONE, 50 * (InventoryService.SLOT_COUNT - 1));
-        inventoryService.add(worldId, aliceId, ItemType.STICK, 40);
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 40);
 
-        assertStatus(HttpStatus.CONFLICT, () -> inventoryService.add(worldId, aliceId, ItemType.STICK, 20));
+        assertStatus(HttpStatus.CONFLICT, () -> inventoryService.add(worldId, aliceId, ItemType.WOOD, 20));
 
-        assertThat(inventoryService.count(worldId, aliceId, ItemType.STICK)).isEqualTo(40);
-        assertThat(inventoryService.roomFor(worldId, aliceId, ItemType.STICK)).isEqualTo(10);
+        assertThat(inventoryService.count(worldId, aliceId, ItemType.WOOD)).isEqualTo(40);
+        assertThat(inventoryService.roomFor(worldId, aliceId, ItemType.WOOD)).isEqualTo(10);
     }
 
     @Test
@@ -117,7 +117,7 @@ class InventoryServiceTest {
 
     @Test
     void movingToAnEmptySlot() {
-        inventoryService.add(worldId, aliceId, ItemType.STICK, 5);
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 5);
 
         inventoryService.move(worldId, aliceId, 0, 20);
 
@@ -126,10 +126,10 @@ class InventoryServiceTest {
 
     @Test
     void movingOntoTheSameItemMergesAsMuchAsFits() {
-        inventoryService.add(worldId, aliceId, ItemType.STICK, 50);
-        inventoryService.add(worldId, aliceId, ItemType.STICK, 30); // slot 1
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 50);
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 30); // slot 1
         inventoryService.move(worldId, aliceId, 0, 5);               // 50 now in slot 5
-        inventoryService.remove(worldId, aliceId, ItemType.STICK, 20, "");  // slot 5 -> 30, slot 1 stays 30
+        inventoryService.remove(worldId, aliceId, ItemType.WOOD, 20, "");  // slot 5 -> 30, slot 1 stays 30
 
         inventoryService.move(worldId, aliceId, 1, 5);
 
@@ -139,21 +139,21 @@ class InventoryServiceTest {
 
     @Test
     void movingOntoSomethingElseSwapsThem() {
-        inventoryService.add(worldId, aliceId, ItemType.STICK, 5);  // slot 0
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 5);  // slot 0
         inventoryService.add(worldId, aliceId, ItemType.STONE, 3);  // slot 1
 
         inventoryService.move(worldId, aliceId, 0, 1);
 
         assertThat(slots()).extracting(InventorySlot::getSlotIndex, InventorySlot::getItem)
-                .containsExactly(tuple(0, ItemType.STONE), tuple(1, ItemType.STICK));
+                .containsExactly(tuple(0, ItemType.STONE), tuple(1, ItemType.WOOD));
     }
 
     @Test
     void whatYouHoldIsTheSelectedQuickAccessSlot() {
-        inventoryService.add(worldId, aliceId, ItemType.STICK, 5);  // slot 0
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 5);  // slot 0
         inventoryService.add(worldId, aliceId, ItemType.HAMMER, 1); // slot 1
 
-        assertThat(inventoryService.held(worldId, aliceId)).isEqualTo(ItemType.STICK);
+        assertThat(inventoryService.held(worldId, aliceId)).isEqualTo(ItemType.WOOD);
         inventoryService.select(worldId, aliceId, 1);
         assertThat(inventoryService.held(worldId, aliceId)).isEqualTo(ItemType.HAMMER);
         inventoryService.select(worldId, aliceId, 2);
@@ -167,7 +167,7 @@ class InventoryServiceTest {
 
     @Test
     void discardingEmptiesTheSlot() {
-        inventoryService.add(worldId, aliceId, ItemType.STICK, 5);
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 5);
 
         inventoryService.discard(worldId, aliceId, 0);
 

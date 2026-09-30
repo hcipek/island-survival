@@ -5,9 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   final json = {
     'slots': [
-      {'slot': 0, 'item': 'STICK', 'quantity': 12},
+      {'slot': 0, 'item': 'WOOD', 'quantity': 12},
       {'slot': 1, 'item': 'BERRY', 'quantity': 3},
-      {'slot': 14, 'item': 'STICK', 'quantity': 50},
+      {'slot': 14, 'item': 'WOOD', 'quantity': 50},
     ],
     'selectedSlot': 1,
     'hotbarSize': 10,
@@ -17,8 +17,8 @@ void main() {
   test('reads the inventory the server sends', () {
     final inventory = InventoryState.fromJson(json);
 
-    expect(inventory.slots[14]!.item, ItemType.stick);
-    expect(inventory.count(ItemType.stick), 62);
+    expect(inventory.slots[14]!.item, ItemType.wood);
+    expect(inventory.count(ItemType.wood), 62);
     expect(inventory.held!.item, ItemType.berry);
     expect(inventory.withSelected(5).held, isNull);
   });
@@ -39,7 +39,7 @@ void main() {
     expect(slots, findsNWidgets(50));
     await tester.tap(slots.at(0));
     await tester.pump();
-    expect(find.textContaining('Throw away sticks'), findsOneWidget);
+    expect(find.textContaining('Throw away wood'), findsOneWidget);
     await tester.tap(slots.at(25));
     await tester.pump();
 
