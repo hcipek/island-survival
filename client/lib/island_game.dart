@@ -5,6 +5,8 @@ import 'package:flame/components.dart';
 import 'package:flame/events.dart';
 import 'package:flame/game.dart';
 
+import 'inventory.dart';
+
 enum BuildingType { port, lumberjack }
 
 enum ResourceNodeType { tree, berryBush, sticks, stones }
@@ -297,9 +299,15 @@ class IslandGame extends FlameGame {
     _fitZoomToScreen();
   }
 
-  /// How long picking berries or sticks takes, shown as a ring above the
-  /// player. The server has a matching (slightly shorter) cooldown.
+  /// How long picking berries, sticks or stones takes - and chopping a
+  /// tree - shown as a ring above the player. The server's cooldown between
+  /// gathers is a little shorter than either.
   static const double gatherSeconds = 2;
+  static const double chopSeconds = 3;
+
+  /// What the player is holding, kept up to date by the Flutter UI from
+  /// their quick-access bar. Tools only work while held.
+  ItemType? heldItem;
 
   /// Kept up to date by the Flutter UI from the player's hunger. At zero you
   /// can still move and pick berries, but not gather sticks or build.
@@ -308,6 +316,7 @@ class IslandGame extends FlameGame {
   /// What this player is gathering from right now, if anything.
   ResourceNodeComponent? _gatheringFrom;
   double _gatherElapsed = 0;
+  double _gatherDuration = gatherSeconds;
 
   @override
   void update(double dt) {
@@ -328,8 +337,8 @@ class IslandGame extends FlameGame {
       return;
     }
     _gatherElapsed += dt;
-    player.gatherProgress = (_gatherElapsed / gatherSeconds).clamp(0, 1);
-    if (_gatherElapsed >= gatherSeconds) {
+    player.gatherProgress = (_gatherElapsed / _gatherDuration).clamp(0, 1);
+    if (_gatherElapsed >= _gatherDuration) {
       _stopGathering();
       onLocalGather?.call(node.id);
     }
@@ -348,13 +357,14 @@ class IslandGame extends FlameGame {
       onNotice?.call('Land on the island first');
       return;
     }
-    if (node.type == ResourceNodeType.tree) {
-      onNotice?.call("You'll need an axe to chop trees - coming later");
-      return;
-    }
+    final isTree = node.type == ResourceNodeType.tree;
     if (!node.isAvailable) {
       final seconds = node.regrowsAt!.difference(DateTime.now()).inSeconds + 1;
-      onNotice?.call('Already picked - it regrows in ${seconds}s');
+      onNotice?.call(isTree ? 'Just a stump - it grows back in ${seconds}s' : 'Already picked - it regrows in ${seconds}s');
+      return;
+    }
+    if (isTree && heldItem != ItemType.axe) {
+      onNotice?.call('Hold an axe to chop trees');
       return;
     }
     if (_islandAt(node.position) != currentPlayerIsland) {
@@ -373,6 +383,7 @@ class IslandGame extends FlameGame {
     _walkTo(spot, onArrived: () {
       _gatheringFrom = node;
       _gatherElapsed = 0;
+      _gatherDuration = isTree ? chopSeconds : gatherSeconds;
     });
   }
 
@@ -1327,6 +1338,17 @@ class TreeComponent extends ResourceNodeComponent {
   void render(Canvas canvas) {
     final trunkPaint = Paint()..color = const Color(0xFF6D4C29);
     final canopyPaint = Paint()..color = const Color(0xFF2E7D32);
+
+    if (!isAvailable) {
+      // Chopped: a stump with a lighter cut top, until it grows back.
+      final stump = Rect.fromLTWH(size.x * 0.3, size.y * 0.8, size.x * 0.4, size.y * 0.2);
+      canvas.drawRect(stump, trunkPaint);
+      canvas.drawOval(
+        Rect.fromLTWH(size.x * 0.3, size.y * 0.76, size.x * 0.4, size.y * 0.08),
+        Paint()..color = const Color(0xFFD7B899),
+      );
+      return;
+    }
 
     final trunkWidth = size.x * 0.25;
     final trunkHeight = size.y * 0.4;

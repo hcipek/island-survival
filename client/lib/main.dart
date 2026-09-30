@@ -692,6 +692,7 @@ class _IslandScreenState extends State<IslandScreen> {
   void initState() {
     super.initState();
     HardwareKeyboard.instance.addHandler(_onKey);
+    _inventory.addListener(_syncHeldItem);
     _bootstrap();
   }
 
@@ -857,6 +858,7 @@ class _IslandScreenState extends State<IslandScreen> {
       ..onLocalCollect = ((buildingId) => _send({'type': 'collect', 'buildingId': buildingId}));
 
     setState(() => _game = game);
+    _syncHeldItem();
 
     game.loaded.then((_) {
       _join(game);
@@ -941,6 +943,11 @@ class _IslandScreenState extends State<IslandScreen> {
   void _setInventory(Object? json) {
     if (json is! Map<String, dynamic>) return;
     _inventory.value = InventoryState.fromJson(json);
+  }
+
+  /// Tells the game what's in the player's hand whenever it changes.
+  void _syncHeldItem() {
+    _game?.heldItem = _inventory.value.held?.item;
   }
 
   void _setPlayerState(Object? json) {

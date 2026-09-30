@@ -45,6 +45,10 @@ public class ResourceNodeService {
     private static final int STONES_PER_PILE = 1;
     private static final Duration BERRY_BUSH_REGROW = Duration.ofMinutes(3);
 
+    /// A chopped tree leaves a stump that grows back into a tree.
+    private static final int WOOD_PER_TREE = 3;
+    private static final Duration TREE_REGROW = Duration.ofMinutes(5);
+
     /// The most of each loose type lying around on an island at once.
     private static final int HOME_STICKS_CAP = 3;
     private static final int OUTER_STICKS_CAP = 4;
@@ -126,12 +130,13 @@ public class ResourceNodeService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Nothing to gather there"));
         Instant now = Instant.now();
 
-        if (node.getType() == ResourceNodeType.TREE) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "You'll need an axe to chop trees");
+        if (node.getType() == ResourceNodeType.TREE && inventoryService.held(worldId, userId) != ItemType.AXE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Hold an axe to chop trees");
         }
         if (!node.isAvailable(now)) {
             long seconds = Math.max(1, regrowsInMillis(node, now) / 1000);
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Already picked - it regrows in " + seconds + "s");
+            String what = node.getType() == ResourceNodeType.TREE ? "Just a stump - it grows back" : "Already picked - it regrows";
+            throw new ResponseStatusException(HttpStatus.CONFLICT, what + " in " + seconds + "s");
         }
         if (Math.hypot(node.getX() - x, node.getY() - y) > GATHER_RANGE) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Walk up to it first");
@@ -164,7 +169,12 @@ public class ResourceNodeService {
                 resourceNodeRepository.delete(node);
                 yield new GatherResult(node, true);
             }
-            case TREE -> throw new IllegalStateException("handled above");
+            case TREE -> {
+                playerVitalsService.requireNotStarving(worldId, userId);
+                inventoryService.add(worldId, userId, ItemType.WOOD, WOOD_PER_TREE);
+                node.setDepletedUntil(now.plus(TREE_REGROW));
+                yield new GatherResult(resourceNodeRepository.save(node), false);
+            }
         };
         lastGatheredAt.put(playerKey, now);
         return result;

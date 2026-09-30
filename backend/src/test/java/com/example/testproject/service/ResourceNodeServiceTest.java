@@ -332,8 +332,32 @@ class ResourceNodeServiceTest {
     }
 
     @Test
-    void treesNeedAnAxe() {
-        assertStatus(HttpStatus.CONFLICT, () -> gatherStandingOn(aliceId, first(ResourceNodeType.TREE)));
+    void treesNeedAnAxeInYourHand() {
+        ResourceNode tree = first(ResourceNodeType.TREE);
+        assertStatus(HttpStatus.CONFLICT, () -> gatherStandingOn(aliceId, tree));
+
+        inventoryService.add(worldId, aliceId, ItemType.STICK, 5); // slot 0, held
+        inventoryService.add(worldId, aliceId, ItemType.AXE, 1);   // slot 1, in the bar but not held
+        assertStatus(HttpStatus.CONFLICT, () -> gatherStandingOn(aliceId, tree));
+
+        inventoryService.select(worldId, aliceId, 1);
+        gatherStandingOn(aliceId, tree);
+        assertThat(inventoryService.count(worldId, aliceId, ItemType.WOOD)).isEqualTo(3);
+    }
+
+    @Test
+    void aChoppedTreeIsAStumpUntilItGrowsBack() {
+        inventoryService.add(worldId, aliceId, ItemType.AXE, 1); // slot 0, held
+        ResourceNode tree = first(ResourceNodeType.TREE);
+
+        ResourceNodeService.GatherResult result =
+                resourceNodeService.gather(worldId, aliceId, tree.getId(), tree.getX(), tree.getY());
+
+        assertThat(result.removed()).isFalse();
+        ResourceNode stump = resourceNodeRepository.findById(tree.getId()).orElseThrow();
+        assertThat(stump.isAvailable(Instant.now())).isFalse();
+        assertThat(stump.isAvailable(Instant.now().plusSeconds(5 * 60 + 1))).isTrue();
+        assertThat(inventoryService.count(worldId, aliceId, ItemType.AXE)).isEqualTo(1); // no durability
     }
 
     @Test

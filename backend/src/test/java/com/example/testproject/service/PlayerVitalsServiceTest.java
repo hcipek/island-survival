@@ -162,6 +162,16 @@ class PlayerVitalsServiceTest {
         assertThat(inventoryService.count(worldId, aliceId, ItemType.STICK)).isZero();
     }
 
+    @Test
+    void starvingPlayersCannotChopTrees() {
+        inventoryService.add(worldId, aliceId, ItemType.AXE, 1);
+        setHunger(0);
+        ResourceNode tree = first(ResourceNodeType.TREE);
+
+        assertStatus(HttpStatus.CONFLICT,
+                () -> resourceNodeService.gather(worldId, aliceId, tree.getId(), tree.getX(), tree.getY()));
+    }
+
     private PlayerStateDto state() {
         return playerVitalsService.stateOf(worldId, aliceId);
     }
