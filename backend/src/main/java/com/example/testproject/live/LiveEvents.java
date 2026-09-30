@@ -22,11 +22,12 @@ public final class LiveEvents {
             List<Map<String, Object>> boats,
             List<Map<String, Object>> players,
             List<Map<String, Object>> nodes,
-            Map<String, Object> inventory
+            Map<String, Object> inventory,
+            List<Map<String, Object>> recipes
     ) {
         return event(
                 "snapshot", "state", state, "buildings", buildings, "boats", boats, "players", players,
-                "nodes", nodes, "inventory", inventory
+                "nodes", nodes, "inventory", inventory, "recipes", recipes
         );
     }
 

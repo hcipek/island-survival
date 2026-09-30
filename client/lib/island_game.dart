@@ -7,7 +7,7 @@ import 'package:flame/game.dart';
 
 enum BuildingType { port, lumberjack }
 
-enum ResourceNodeType { tree, berryBush, sticks }
+enum ResourceNodeType { tree, berryBush, sticks, stones }
 
 /// A tree, berry bush or pile of sticks, shared by everyone in the world.
 /// [regrowsIn] is how long until it can be gathered from again (zero if it
@@ -361,7 +361,7 @@ class IslandGame extends FlameGame {
       onNotice?.call('Sail over to that island first');
       return;
     }
-    if (isStarving && node.type == ResourceNodeType.sticks) {
+    if (isStarving && node.type != ResourceNodeType.berryBush) {
       onNotice?.call("You're starving - pick some berries and eat first");
       return;
     }
@@ -462,6 +462,7 @@ class IslandGame extends FlameGame {
       ResourceNodeType.berryBush =>
         BerryBushComponent(id: record.id, position: position, islandRadius: islandRadius),
       ResourceNodeType.sticks => SticksComponent(id: record.id, position: position, islandRadius: islandRadius),
+      ResourceNodeType.stones => StonesComponent(id: record.id, position: position, islandRadius: islandRadius),
     };
     node.setRegrowsIn(record.regrowsIn);
     resourceNodes[record.id] = node;
@@ -1387,6 +1388,21 @@ class SticksComponent extends ResourceNodeComponent {
     canvas.drawLine(Offset(size.x * 0.1, size.y * 0.75), Offset(size.x * 0.9, size.y * 0.35), paint);
     canvas.drawLine(Offset(size.x * 0.15, size.y * 0.3), Offset(size.x * 0.85, size.y * 0.8), paint);
     canvas.drawLine(Offset(size.x * 0.3, size.y * 0.9), Offset(size.x * 0.6, size.y * 0.15), paint);
+  }
+}
+
+/// A few grey stones on the ground - gone once they've been picked up.
+class StonesComponent extends ResourceNodeComponent {
+  StonesComponent({required super.id, required super.position, required double islandRadius})
+      : super(type: ResourceNodeType.stones, size: Vector2.all(islandRadius * 0.08));
+
+  @override
+  void render(Canvas canvas) {
+    final light = Paint()..color = const Color(0xFFBDBDBD);
+    final dark = Paint()..color = const Color(0xFF8E8E8E);
+    canvas.drawOval(Rect.fromLTWH(size.x * 0.05, size.y * 0.45, size.x * 0.5, size.y * 0.38), dark);
+    canvas.drawOval(Rect.fromLTWH(size.x * 0.4, size.y * 0.3, size.x * 0.5, size.y * 0.42), light);
+    canvas.drawOval(Rect.fromLTWH(size.x * 0.3, size.y * 0.62, size.x * 0.36, size.y * 0.3), light);
   }
 }
 

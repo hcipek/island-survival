@@ -7,7 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /// The regular background tick for worlds where someone is playing: drops
-/// new sticks (and tells everyone there), and notes that the world is still
+/// new sticks and stones (and tells everyone there), and notes that the world is still
 /// active, so a catch-up after everyone leaves starts from the right time
 /// even if the server stops unexpectedly.
 @Component
@@ -28,17 +28,17 @@ public class WorldTicker {
     }
 
     @Scheduled(
-            initialDelay = ResourceNodeService.STICK_DROP_INTERVAL_MS,
-            fixedDelay = ResourceNodeService.STICK_DROP_INTERVAL_MS
+            initialDelay = ResourceNodeService.LOOSE_DROP_INTERVAL_MS,
+            fixedDelay = ResourceNodeService.LOOSE_DROP_INTERVAL_MS
     )
     public void tick() {
-        tickActiveWorlds(ResourceNodeService.STICK_DROP_CHANCE);
+        tickActiveWorlds(ResourceNodeService.LOOSE_DROP_CHANCE);
     }
 
-    public void tickActiveWorlds(double stickDropChance) {
+    public void tickActiveWorlds(double looseDropChance) {
         for (long worldId : registry.activeWorldIds()) {
             worldService.markActive(worldId);
-            for (ResourceNode node : resourceNodeService.dropSticks(worldId, stickDropChance)) {
+            for (ResourceNode node : resourceNodeService.dropLooseNodes(worldId, looseDropChance)) {
                 registry.broadcast(worldId, LiveEvents.nodeAdded(ResourceNodeService.view(node)));
             }
         }

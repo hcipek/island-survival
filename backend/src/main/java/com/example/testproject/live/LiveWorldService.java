@@ -7,6 +7,7 @@ import com.example.testproject.model.User;
 import com.example.testproject.repository.BoatRepository;
 import com.example.testproject.repository.PlayerPresenceRepository;
 import com.example.testproject.repository.UserRepository;
+import com.example.testproject.service.CraftingService;
 import com.example.testproject.service.InventoryService;
 import com.example.testproject.service.PlayerVitalsService;
 import com.example.testproject.service.ResourceNodeService;
@@ -41,6 +42,7 @@ public class LiveWorldService {
     private final ResourceNodeService resourceNodeService;
     private final PlayerVitalsService playerVitalsService;
     private final InventoryService inventoryService;
+    private final CraftingService craftingService;
     private final PlayerPresenceRepository playerPresenceRepository;
     private final BoatRepository boatRepository;
     private final UserRepository userRepository;
@@ -56,6 +58,7 @@ public class LiveWorldService {
             ResourceNodeService resourceNodeService,
             PlayerVitalsService playerVitalsService,
             InventoryService inventoryService,
+            CraftingService craftingService,
             PlayerPresenceRepository playerPresenceRepository,
             BoatRepository boatRepository,
             UserRepository userRepository
@@ -65,6 +68,7 @@ public class LiveWorldService {
         this.resourceNodeService = resourceNodeService;
         this.playerVitalsService = playerVitalsService;
         this.inventoryService = inventoryService;
+        this.craftingService = craftingService;
         this.playerPresenceRepository = playerPresenceRepository;
         this.boatRepository = boatRepository;
         this.userRepository = userRepository;
@@ -79,17 +83,17 @@ public class LiveWorldService {
         worldService.getState(worldId, userId); // fails fast if the world doesn't exist
 
         synchronized (registry.lockFor(worldId)) {
-            // Sticks only drop over time while someone's playing, so a world
-            // nobody was in catches up on the ones it missed - based on how
-            // long it's been empty, so leaving and coming straight back
-            // doesn't refill anything.
+            // Sticks and stones only drop over time while someone's playing,
+            // so a world nobody was in catches up on the ones it missed -
+            // based on how long it's been empty, so leaving and coming
+            // straight back doesn't refill anything.
             resourceNodeService.ensureNodes(worldId);
             if (registry.joinedUserIds(worldId).isEmpty()) {
-                ResourceNodeService.StickChanges sticks =
-                        resourceNodeService.catchUpSticks(worldId, worldService.lastActiveAt(worldId));
+                ResourceNodeService.LooseNodeChanges loose =
+                        resourceNodeService.catchUpLooseNodes(worldId, worldService.lastActiveAt(worldId));
                 worldService.markActive(worldId);
-                sticks.removedIds().forEach(id -> registry.broadcast(worldId, LiveEvents.nodeRemoved(id)));
-                sticks.added().forEach(node ->
+                loose.removedIds().forEach(id -> registry.broadcast(worldId, LiveEvents.nodeRemoved(id)));
+                loose.added().forEach(node ->
                         registry.broadcast(worldId, LiveEvents.nodeAdded(ResourceNodeService.view(node))));
             }
 
@@ -184,6 +188,14 @@ public class LiveWorldService {
         playerVitalsService.requireHungry(worldId, userId);
         inventoryService.removeOneHeld(worldId, userId, ItemType.BERRY);
         playerVitalsService.sendStateTo(playerVitalsService.eatBerry(worldId, userId));
+        inventoryService.sendTo(worldId, userId);
+    }
+
+    public void craft(WebSocketSession session, String recipe) {
+        long worldId = registry.worldIdOf(session);
+        long userId = registry.userIdOf(session);
+        requireJoined(session);
+        craftingService.craft(worldId, userId, recipe);
         inventoryService.sendTo(worldId, userId);
     }
 
@@ -306,7 +318,8 @@ public class LiveWorldService {
         resourceNodeService.ensureNodes(worldId);
         return LiveEvents.snapshot(
                 worldService.getState(worldId, excludingUserId), worldService.getBuildings(worldId), boats, players,
-                resourceNodeService.nodesView(worldId), inventoryService.view(worldId, excludingUserId)
+                resourceNodeService.nodesView(worldId), inventoryService.view(worldId, excludingUserId),
+                craftingService.recipesView()
         );
     }
 

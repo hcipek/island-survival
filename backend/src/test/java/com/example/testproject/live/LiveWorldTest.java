@@ -111,6 +111,7 @@ class LiveWorldTest {
         assertThat(list(snapshot, "players")).isEmpty();
         assertThat(number(map(snapshot, "state"), "hunger")).isEqualTo(100);
         assertThat(list(map(snapshot, "inventory"), "slots")).isEmpty(); // everyone starts empty-handed
+        assertThat(list(snapshot, "recipes")).extracting(r -> r.get("id")).containsExactly("AXE", "HAMMER");
         assertThat(list(snapshot, "nodes")).isNotEmpty()
                 .allSatisfy(node -> assertThat(number(node, "regrowsInMs")).isZero());
     }
@@ -292,6 +293,7 @@ class LiveWorldTest {
         worldTicker.tickActiveWorlds(1.0);
 
         Map<String, Object> dropped = map(bob.expect("nodeAdded"), "node");
+        // Everything else was already at its limit when the world was made.
         assertThat(dropped.get("type")).isEqualTo("STICKS");
         assertThat(number(dropped, "id")).isNotEqualTo(number(sticks, "id"));
         assertThat(map(alice.expect("nodeAdded"), "node").get("id")).isEqualTo(dropped.get("id"));
@@ -387,6 +389,18 @@ class LiveWorldTest {
 
         alice.send(Map.of("type", "discard", "slot", 15));
         assertThat(list(map(alice.expect("inventory"), "inventory"), "slots")).isEmpty();
+    }
+
+    @Test
+    void craftingAnAxeOverTheSocket() throws Exception {
+        inventoryService.add(worldId, aliceId, ItemType.STICK, 3);
+        inventoryService.add(worldId, aliceId, ItemType.STONE, 2);
+        TestClient alice = connectAndJoin(aliceId);
+
+        alice.send(Map.of("type", "craft", "recipe", "AXE"));
+
+        assertThat(list(map(alice.expect("inventory"), "inventory"), "slots"))
+                .singleElement().satisfies(slot -> assertThat(slot.get("item")).isEqualTo("AXE"));
     }
 
     @Test

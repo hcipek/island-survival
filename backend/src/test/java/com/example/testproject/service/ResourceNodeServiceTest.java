@@ -63,13 +63,14 @@ class ResourceNodeServiceTest {
     }
 
     @Test
-    void everyIslandGetsTreesBushesAndSticks() {
+    void everyIslandGetsTreesBushesSticksAndStones() {
         for (WorldIsland island : islands) {
             Map<ResourceNodeType, Long> counts = nodes().stream()
                     .filter(n -> n.getIslandId().equals(island.getId()))
                     .collect(Collectors.groupingBy(ResourceNode::getType, Collectors.counting()));
             assertThat(counts).as("island %s", island.getId())
-                    .containsOnlyKeys(ResourceNodeType.TREE, ResourceNodeType.BERRY_BUSH, ResourceNodeType.STICKS);
+                    .containsOnlyKeys(ResourceNodeType.TREE, ResourceNodeType.BERRY_BUSH,
+                            ResourceNodeType.STICKS, ResourceNodeType.STONES);
         }
     }
 
@@ -82,7 +83,8 @@ class ResourceNodeServiceTest {
 
         assertThat(counts).containsEntry(ResourceNodeType.TREE, 5L)
                 .containsEntry(ResourceNodeType.BERRY_BUSH, 2L)
-                .containsEntry(ResourceNodeType.STICKS, 3L);
+                .containsEntry(ResourceNodeType.STICKS, 3L)
+                .containsEntry(ResourceNodeType.STONES, 2L);
     }
 
     @Test
@@ -136,6 +138,32 @@ class ResourceNodeServiceTest {
     }
 
     @Test
+    void stonesAreLooseLikeSticksButGiveOneEach() {
+        ResourceNode stones = first(ResourceNodeType.STONES);
+
+        ResourceNodeService.GatherResult result =
+                resourceNodeService.gather(worldId, aliceId, stones.getId(), stones.getX(), stones.getY());
+
+        assertThat(result.removed()).isTrue();
+        assertThat(inventoryService.count(worldId, aliceId, ItemType.STONE)).isEqualTo(1);
+    }
+
+    @Test
+    void stonesDropAgainUpToTheirOwnLimit() {
+        nodes().stream().filter(n -> n.getType() == ResourceNodeType.STONES)
+                .forEach(resourceNodeRepository::delete);
+
+        resourceNodeService.catchUpLooseNodes(worldId, null);
+
+        for (WorldIsland island : islands) {
+            long stones = nodes().stream()
+                    .filter(n -> n.getType() == ResourceNodeType.STONES && n.getIslandId().equals(island.getId()))
+                    .count();
+            assertThat(stones).as("island %s", island.getId()).isBetween(1L, island.isHome() ? 2L : 3L);
+        }
+    }
+
+    @Test
     void pickingUpSticksGivesWood() {
         gatherStandingOn(aliceId, first(ResourceNodeType.STICKS));
 
@@ -159,9 +187,11 @@ class ResourceNodeServiceTest {
         long before = count(ResourceNodeType.STICKS);
         gatherStandingOn(aliceId, sticks);
 
-        List<ResourceNode> dropped = resourceNodeService.dropSticks(worldId, 1.0);
+        List<ResourceNode> dropped = resourceNodeService.dropLooseNodes(worldId, 1.0);
 
+        // Only sticks are below their limit, so that's what drops.
         assertThat(dropped).singleElement().satisfies(stick -> {
+            assertThat(stick.getType()).isEqualTo(ResourceNodeType.STICKS);
             assertThat(stick.getId()).isNotEqualTo(sticks.getId());
             assertThat(stick.getIslandId()).isEqualTo(sticks.getIslandId());
         });
@@ -171,9 +201,9 @@ class ResourceNodeServiceTest {
     @Test
     void islandsNeverHaveMoreSticksThanTheLimit() {
         for (int i = 0; i < 10; i++) {
-            resourceNodeService.dropSticks(worldId, 1.0);
+            resourceNodeService.dropLooseNodes(worldId, 1.0);
         }
-        resourceNodeService.catchUpSticks(worldId, null);
+        resourceNodeService.catchUpLooseNodes(worldId, null);
 
         for (WorldIsland island : islands) {
             long sticks = nodes().stream()
@@ -189,14 +219,15 @@ class ResourceNodeServiceTest {
     void comingBackAfterALongTimeRefillsTheIslands() {
         removeAllSticks();
 
-        ResourceNodeService.StickChanges changes =
-                resourceNodeService.catchUpSticks(worldId, Instant.now().minusSeconds(3600));
+        ResourceNodeService.LooseNodeChanges changes =
+                resourceNodeService.catchUpLooseNodes(worldId, Instant.now().minusSeconds(3600));
 
         // Up to 3 on the home island and 4 on each of the three outer ones
         // (a crowded small island may fit fewer). The home island is roomy
         // enough to always get all 3.
         WorldIsland home = islands.stream().filter(WorldIsland::isHome).findFirst().orElseThrow();
-        assertThat(changes.added()).hasSizeBetween(3 + 3, 15);
+        assertThat(changes.added()).hasSizeBetween(3 + 3, 15)
+                .allSatisfy(n -> assertThat(n.getType()).isEqualTo(ResourceNodeType.STICKS));
         assertThat(changes.added().stream().filter(n -> n.getIslandId().equals(home.getId()))).hasSize(3);
         assertThat(count(ResourceNodeType.STICKS)).isEqualTo(changes.added().size());
     }
@@ -205,7 +236,7 @@ class ResourceNodeServiceTest {
     void comingBackRightAwayAddsNothing() {
         removeAllSticks();
 
-        ResourceNodeService.StickChanges changes = resourceNodeService.catchUpSticks(worldId, Instant.now());
+        ResourceNodeService.LooseNodeChanges changes = resourceNodeService.catchUpLooseNodes(worldId, Instant.now());
 
         assertThat(changes.added()).isEmpty();
     }
@@ -215,8 +246,8 @@ class ResourceNodeServiceTest {
         removeAllSticks();
 
         // 25 seconds is one missed tick: at most one stick per island.
-        ResourceNodeService.StickChanges changes =
-                resourceNodeService.catchUpSticks(worldId, Instant.now().minusSeconds(25));
+        ResourceNodeService.LooseNodeChanges changes =
+                resourceNodeService.catchUpLooseNodes(worldId, Instant.now().minusSeconds(25));
 
         assertThat(changes.added()).hasSizeLessThanOrEqualTo(islands.size());
         assertThat(changes.added().stream().map(ResourceNode::getIslandId).distinct())
@@ -228,7 +259,7 @@ class ResourceNodeServiceTest {
         removeAllSticks();
 
         long started = System.nanoTime();
-        ResourceNodeService.StickChanges changes = resourceNodeService.catchUpSticks(worldId, Instant.EPOCH);
+        ResourceNodeService.LooseNodeChanges changes = resourceNodeService.catchUpLooseNodes(worldId, Instant.EPOCH);
         long millis = (System.nanoTime() - started) / 1_000_000;
 
         assertThat(changes.added()).isNotEmpty();
@@ -243,7 +274,7 @@ class ResourceNodeServiceTest {
         removeAllSticks();
 
         for (int i = 0; i < 20; i++) {
-            resourceNodeService.catchUpSticks(worldId, null);
+            resourceNodeService.catchUpLooseNodes(worldId, null);
             nodes().stream()
                     .filter(n -> n.getType() == ResourceNodeType.STICKS)
                     .forEach(stick -> assertThat(Math.hypot(stick.getX() - 150, stick.getY() - 150))
@@ -259,7 +290,7 @@ class ResourceNodeServiceTest {
         old.setDepletedUntil(Instant.now().plusSeconds(60));
         resourceNodeRepository.save(old);
 
-        ResourceNodeService.StickChanges changes = resourceNodeService.catchUpSticks(worldId, Instant.now());
+        ResourceNodeService.LooseNodeChanges changes = resourceNodeService.catchUpLooseNodes(worldId, Instant.now());
 
         assertThat(changes.removedIds()).containsExactly(old.getId());
         assertThat(resourceNodeRepository.findById(old.getId())).isEmpty();

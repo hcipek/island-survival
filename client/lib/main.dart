@@ -185,6 +185,7 @@ ResourceNodeRecord _nodeFromJson(Map<String, dynamic> json) {
       'TREE' => ResourceNodeType.tree,
       'BERRY_BUSH' => ResourceNodeType.berryBush,
       'STICKS' => ResourceNodeType.sticks,
+      'STONES' => ResourceNodeType.stones,
       final other => throw Exception('Unknown resource node type: $other'),
     },
     x: (json['x'] as num).toDouble(),
@@ -676,6 +677,9 @@ class _IslandScreenState extends State<IslandScreen> {
   /// date while open.
   final ValueNotifier<InventoryState> _inventory = ValueNotifier(InventoryState.empty);
 
+  /// What can be crafted, as the server listed it in the snapshot.
+  List<Recipe> _recipes = const [];
+
   /// Events are applied strictly one after another, since applying one can
   /// take a moment (e.g. spawning components) and order matters.
   Future<void> _eventQueue = Future.value();
@@ -771,6 +775,17 @@ class _IslandScreenState extends State<IslandScreen> {
     }
   }
 
+  void _openCraft() {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => CraftSheet(
+        recipes: _recipes,
+        inventory: _inventory,
+        onCraft: (recipe) => _send({'type': 'craft', 'recipe': recipe.id}),
+      ),
+    );
+  }
+
   void _openBag() {
     showModalBottomSheet(
       context: context,
@@ -799,6 +814,7 @@ class _IslandScreenState extends State<IslandScreen> {
   void _startGame(Map<String, dynamic> snapshot) {
     _setPlayerState(snapshot['state']);
     _setInventory(snapshot['inventory']);
+    _recipes = _listFromJson(snapshot['recipes'], Recipe.fromJson);
     final game = IslandGame(
       islandLayout: _layout!,
       existingBuildings: _listFromJson(snapshot['buildings'], _buildingFromJson),
@@ -1277,7 +1293,12 @@ class _IslandScreenState extends State<IslandScreen> {
                                 label: const Text('Eat (E)'),
                               ),
                             ),
-                          Hotbar(inventory: inventory, onSelect: _selectSlot, onOpenBag: _openBag),
+                          Hotbar(
+                            inventory: inventory,
+                            onSelect: _selectSlot,
+                            onOpenBag: _openBag,
+                            onOpenCraft: _openCraft,
+                          ),
                         ],
                       ),
                     ),

@@ -21,12 +21,13 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 
-/// The trees, berry bushes and sticks on each island, and gathering from
-/// them by hand.
+/// The trees, berry bushes, sticks and stones on each island, and gathering
+/// from them by hand.
 ///
 /// Trees and bushes stay put - a picked bush regrows its berries in place.
-/// Sticks are different: picking them up removes them, and new ones drop at
-/// random free spots over time (see [dropSticks]), up to a limit per island.
+/// Sticks and stones are loose: picking them up removes them, and new ones
+/// drop at random free spots over time (see [dropLooseNodes]), up to a limit
+/// per island.
 @Service
 public class ResourceNodeService {
 
@@ -40,16 +41,21 @@ public class ResourceNodeService {
 
     private static final int BERRIES_PER_BUSH = 3;
     private static final int STICKS_PER_PILE = 2;
+    /// Stones are scarcer than sticks: one each.
+    private static final int STONES_PER_PILE = 1;
     private static final Duration BERRY_BUSH_REGROW = Duration.ofMinutes(3);
 
-    /// The most sticks lying around on an island at once.
+    /// The most of each loose type lying around on an island at once.
     private static final int HOME_STICKS_CAP = 3;
     private static final int OUTER_STICKS_CAP = 4;
+    private static final int HOME_STONES_CAP = 2;
+    private static final int OUTER_STONES_CAP = 3;
 
-    /// How often sticks may drop while someone's playing, and the chance for
-    /// each island below its limit each time - about one every 40 seconds.
-    public static final long STICK_DROP_INTERVAL_MS = 20_000;
-    public static final double STICK_DROP_CHANCE = 0.5;
+    /// How often loose nodes may drop while someone's playing, and the chance
+    /// for each island below its limit (for each type) each time - about one
+    /// every 40 seconds.
+    public static final long LOOSE_DROP_INTERVAL_MS = 20_000;
+    public static final double LOOSE_DROP_CHANCE = 0.5;
 
     /// A safety limit on how many missed ticks a catch-up simulates. Islands
     /// are full long before this (a few dozen ticks), so it only bounds the
@@ -99,12 +105,12 @@ public class ResourceNodeService {
     }
 
     /// What gathering did to the node: now regrowing, or [removed] entirely
-    /// if it was sticks. What it gave went into the player's inventory.
+    /// if it was loose. What it gave went into the player's inventory.
     public record GatherResult(ResourceNode node, boolean removed) {
     }
 
-    /// Sticks that appeared, and ones that were cleared away.
-    public record StickChanges(List<ResourceNode> added, List<Long> removedIds) {
+    /// Loose nodes that appeared, and ones that were cleared away.
+    public record LooseNodeChanges(List<ResourceNode> added, List<Long> removedIds) {
     }
 
     /// [userId], standing at ([x], [y]), gathers from [nodeId] by hand.
@@ -152,24 +158,31 @@ public class ResourceNodeService {
                 resourceNodeRepository.delete(node);
                 yield new GatherResult(node, true);
             }
+            case STONES -> {
+                playerVitalsService.requireNotStarving(worldId, userId);
+                inventoryService.add(worldId, userId, ItemType.STONE, STONES_PER_PILE);
+                resourceNodeRepository.delete(node);
+                yield new GatherResult(node, true);
+            }
             case TREE -> throw new IllegalStateException("handled above");
         };
         lastGatheredAt.put(playerKey, now);
         return result;
     }
 
-    /// Adds the sticks that would have dropped while nobody was in [worldId]:
+    /// Adds the loose nodes that would have dropped while nobody was in
+    /// [worldId]:
     /// the same rolls the regular tick makes, once for every tick missed
     /// since [lastActiveAt] (as many as needed if it's null). So coming back
     /// after a few seconds adds nothing, and after a few minutes the islands
     /// are most likely full again.
     ///
     /// Also clears away sticks from before they stopped regrowing in place.
-    public synchronized StickChanges catchUpSticks(long worldId, Instant lastActiveAt) {
+    public synchronized LooseNodeChanges catchUpLooseNodes(long worldId, Instant lastActiveAt) {
         long missedTicks = lastActiveAt == null
                 ? MAX_CATCH_UP_TICKS
                 : Math.min(MAX_CATCH_UP_TICKS,
-                        Duration.between(lastActiveAt, Instant.now()).toMillis() / STICK_DROP_INTERVAL_MS);
+                        Duration.between(lastActiveAt, Instant.now()).toMillis() / LOOSE_DROP_INTERVAL_MS);
 
         List<ResourceNode> nodes = new ArrayList<>(resourceNodeRepository.findAllByWorldId(worldId));
         List<Long> removedIds = new ArrayList<>();
@@ -181,39 +194,47 @@ public class ResourceNodeService {
             }
         }
 
-        List<ResourceNode> added = simulateDrops(worldId, nodes, missedTicks, STICK_DROP_CHANCE);
-        return new StickChanges(resourceNodeRepository.saveAll(added), removedIds);
+        List<ResourceNode> added = simulateDrops(worldId, nodes, missedTicks, LOOSE_DROP_CHANCE);
+        return new LooseNodeChanges(resourceNodeRepository.saveAll(added), removedIds);
     }
 
-    /// One tick: each island that's below its stick limit has [chance] (0 to
-    /// 1) of a new stick dropping at a random free spot. Called regularly
-    /// while someone is in the world.
-    public synchronized List<ResourceNode> dropSticks(long worldId, double chance) {
+    /// One tick: for each island and each loose type it's below the limit
+    /// of, there's [chance] (0 to 1) of a new one dropping at a random free
+    /// spot. Called regularly while someone is in the world.
+    public synchronized List<ResourceNode> dropLooseNodes(long worldId, double chance) {
         List<ResourceNode> nodes = new ArrayList<>(resourceNodeRepository.findAllByWorldId(worldId));
         return resourceNodeRepository.saveAll(simulateDrops(worldId, nodes, 1, chance));
     }
 
-    /// Runs [ticks] rounds of drop rolls in memory, adding the new sticks to
+    /// Runs [ticks] rounds of drop rolls in memory, adding the new nodes to
     /// [nodes]. Everything is loaded once up front and it stops as soon as
     /// no island has room left, so catching up on a long absence costs the
     /// same few queries as a single tick.
     private List<ResourceNode> simulateDrops(long worldId, List<ResourceNode> nodes, long ticks, double chance) {
+        record Spot(WorldIsland island, ResourceNodeType type) {
+        }
         List<Building> buildings = buildingRepository.findAllByWorldId(worldId);
-        List<WorldIsland> withRoom = new ArrayList<>(worldIslandRepository.findAllByWorldId(worldId).stream()
-                .filter(island -> sticksOn(island, nodes) < sticksCap(island))
-                .toList());
+        List<Spot> withRoom = new ArrayList<>();
+        for (WorldIsland island : worldIslandRepository.findAllByWorldId(worldId)) {
+            for (ResourceNodeType type : ResourceNodeType.values()) {
+                if (type.isLoose() && looseOn(island, type, nodes) < looseCap(island, type)) {
+                    withRoom.add(new Spot(island, type));
+                }
+            }
+        }
 
         List<ResourceNode> added = new ArrayList<>();
         for (long tick = 0; tick < ticks && !withRoom.isEmpty(); tick++) {
-            for (WorldIsland island : List.copyOf(withRoom)) {
+            for (Spot spot : List.copyOf(withRoom)) {
                 if (random.nextDouble() >= chance) {
                     continue;
                 }
-                List<ResourceNode> dropped = placeOn(island, ResourceNodeType.STICKS, 1, nodes, buildings);
+                List<ResourceNode> dropped = placeOn(spot.island(), spot.type(), 1, nodes, buildings);
                 added.addAll(dropped);
                 // Full now, or so crowded there's no free spot left.
-                if (dropped.isEmpty() || sticksOn(island, nodes) >= sticksCap(island)) {
-                    withRoom.remove(island);
+                if (dropped.isEmpty()
+                        || looseOn(spot.island(), spot.type(), nodes) >= looseCap(spot.island(), spot.type())) {
+                    withRoom.remove(spot);
                 }
             }
         }
@@ -237,7 +258,8 @@ public class ResourceNodeService {
         for (WorldIsland island : worldIslandRepository.findAllByWorldId(worldId)) {
             placeOn(island, ResourceNodeType.TREE, island.isHome() ? HOME_TREES : outerCount(), placed, buildings);
             placeOn(island, ResourceNodeType.BERRY_BUSH, island.isHome() ? HOME_BUSHES : outerCount(), placed, buildings);
-            placeOn(island, ResourceNodeType.STICKS, sticksCap(island), placed, buildings);
+            placeOn(island, ResourceNodeType.STICKS, looseCap(island, ResourceNodeType.STICKS), placed, buildings);
+            placeOn(island, ResourceNodeType.STONES, looseCap(island, ResourceNodeType.STONES), placed, buildings);
         }
         resourceNodeRepository.saveAll(placed);
     }
@@ -259,13 +281,17 @@ public class ResourceNodeService {
         return OUTER_MIN_EACH + random.nextInt(OUTER_MAX_EACH - OUTER_MIN_EACH + 1);
     }
 
-    private static int sticksCap(WorldIsland island) {
-        return island.isHome() ? HOME_STICKS_CAP : OUTER_STICKS_CAP;
+    private static int looseCap(WorldIsland island, ResourceNodeType type) {
+        return switch (type) {
+            case STICKS -> island.isHome() ? HOME_STICKS_CAP : OUTER_STICKS_CAP;
+            case STONES -> island.isHome() ? HOME_STONES_CAP : OUTER_STONES_CAP;
+            default -> 0;
+        };
     }
 
-    private static int sticksOn(WorldIsland island, List<ResourceNode> nodes) {
+    private static int looseOn(WorldIsland island, ResourceNodeType type, List<ResourceNode> nodes) {
         return (int) nodes.stream()
-                .filter(n -> n.getType() == ResourceNodeType.STICKS && island.getId().equals(n.getIslandId()))
+                .filter(n -> n.getType() == type && island.getId().equals(n.getIslandId()))
                 .count();
     }
 

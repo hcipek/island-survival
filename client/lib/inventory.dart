@@ -81,14 +81,21 @@ class Hotbar extends StatelessWidget {
   final InventoryState inventory;
   final ValueChanged<int> onSelect;
   final VoidCallback onOpenBag;
+  final VoidCallback onOpenCraft;
 
-  const Hotbar({super.key, required this.inventory, required this.onSelect, required this.onOpenBag});
+  const Hotbar({
+    super.key,
+    required this.inventory,
+    required this.onSelect,
+    required this.onOpenBag,
+    required this.onOpenCraft,
+  });
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
-      // Shrinks to fit phone screens: 10 slots plus the bag button.
-      final slotSize = min(48.0, (constraints.maxWidth - 24) / (inventory.hotbarSize + 1) - 4);
+      // Shrinks to fit phone screens: 10 slots plus the bag and craft buttons.
+      final slotSize = min(48.0, (constraints.maxWidth - 28) / (inventory.hotbarSize + 2) - 4);
       return Card(
         color: Colors.black.withValues(alpha: 0.55),
         child: Padding(
@@ -107,19 +114,23 @@ class Hotbar extends StatelessWidget {
                     onTap: () => onSelect(i),
                   ),
                 ),
-              Padding(
-                padding: const EdgeInsets.only(left: 4),
-                child: SizedBox(
-                  width: slotSize,
-                  height: slotSize,
-                  child: IconButton.filledTonal(
-                    padding: EdgeInsets.zero,
-                    tooltip: 'Open bag',
-                    onPressed: onOpenBag,
-                    icon: Icon(Icons.backpack, size: slotSize * 0.55),
+              for (final (tooltip, icon, onPressed) in [
+                ('Open bag', Icons.backpack, onOpenBag),
+                ('Craft', Icons.handyman, onOpenCraft),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: SizedBox(
+                    width: slotSize,
+                    height: slotSize,
+                    child: IconButton.filledTonal(
+                      padding: EdgeInsets.zero,
+                      tooltip: tooltip,
+                      onPressed: onPressed,
+                      icon: Icon(icon, size: slotSize * 0.55),
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -363,4 +374,97 @@ class _ItemPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ItemPainter oldDelegate) => oldDelegate.item != item;
+}
+
+/// Something the player can make, as the server describes it.
+class Recipe {
+  final String id;
+  final ItemType output;
+  final List<ItemStack> ingredients;
+
+  const Recipe({required this.id, required this.output, required this.ingredients});
+
+  factory Recipe.fromJson(Map<String, dynamic> json) {
+    return Recipe(
+      id: json['id'] as String,
+      output: itemTypeFromJson(json['output'] as String),
+      ingredients: [
+        for (final ingredient in json['ingredients'] as List<dynamic>)
+          ItemStack(
+            itemTypeFromJson((ingredient as Map<String, dynamic>)['item'] as String),
+            ingredient['quantity'] as int,
+          ),
+      ],
+    );
+  }
+
+  bool canMake(InventoryState inventory) =>
+      ingredients.every((i) => inventory.count(i.item) >= i.quantity);
+}
+
+/// The list of recipes, each showing what it needs against what you have.
+/// Stays in sync with [inventory] while open, so you can craft several.
+class CraftSheet extends StatelessWidget {
+  final List<Recipe> recipes;
+  final ValueNotifier<InventoryState> inventory;
+  final ValueChanged<Recipe> onCraft;
+
+  const CraftSheet({super.key, required this.recipes, required this.inventory, required this.onCraft});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<InventoryState>(
+      valueListenable: inventory,
+      builder: (context, inventory, _) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text('Craft', style: Theme.of(context).textTheme.titleLarge),
+                  const Spacer(),
+                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                ],
+              ),
+              for (final recipe in recipes)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: ItemIcon(item: recipe.output, size: 36),
+                  title: Text(itemName(recipe.output)),
+                  subtitle: Wrap(
+                    spacing: 12,
+                    children: [
+                      for (final ingredient in recipe.ingredients)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ItemIcon(item: ingredient.item, size: 18),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${inventory.count(ingredient.item)}/${ingredient.quantity}',
+                              style: TextStyle(
+                                color: inventory.count(ingredient.item) >= ingredient.quantity
+                                    ? null
+                                    : Colors.redAccent,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                  trailing: FilledButton(
+                    onPressed: recipe.canMake(inventory) ? () => onCraft(recipe) : null,
+                    child: const Text('Craft'),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

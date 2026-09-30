@@ -16,6 +16,7 @@ import java.util.List;
 /// - `discard` - `slot`: throwing away what's in a slot
 /// - `use` - no fields: using what you're holding (e.g. eating a berry)
 /// - `collect` - `buildingId`: taking the wood your lumberjack has stored
+/// - `craft` - `recipe`: making something, e.g. `AXE`
 public record ClientMessage(
         String type,
         Point position,
@@ -26,6 +27,7 @@ public record ClientMessage(
         Integer slot,
         Integer fromSlot,
         Integer toSlot,
-        Long buildingId
+        Long buildingId,
+        String recipe
 ) {
 }
