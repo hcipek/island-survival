@@ -30,9 +30,17 @@ public class PlayerResources {
     private double wood;
     private Instant lastCollectedAt = Instant.now();
 
-    /// The default lets the column be added to rows that already exist.
+    /// The defaults let these columns be added to rows that already exist.
     @ColumnDefault("0")
     private double food;
+
+    /// 100 is full, 0 is starving.
+    @ColumnDefault("100")
+    private double hunger = 100;
+
+    /// When hunger was last brought up to date, while the player is in the
+    /// world - or null while they're away, since hunger doesn't drop then.
+    private Instant hungerSettledAt;
 
     protected PlayerResources() {
     }
@@ -69,6 +77,22 @@ public class PlayerResources {
 
     public void setFood(double food) {
         this.food = food;
+    }
+
+    public double getHunger() {
+        return hunger;
+    }
+
+    public void setHunger(double hunger) {
+        this.hunger = hunger;
+    }
+
+    public Instant getHungerSettledAt() {
+        return hungerSettledAt;
+    }
+
+    public void setHungerSettledAt(Instant hungerSettledAt) {
+        this.hungerSettledAt = hungerSettledAt;
     }
 
     public Instant getLastCollectedAt() {

@@ -11,5 +11,6 @@ import java.util.List;
 /// - `sail` - `boatId`, `from`, `path`: sailing the boat you're aboard
 /// - `land` - `boatId`, `position`: stepping off onto an island
 /// - `gather` - `nodeId`: picking berries or sticks you're standing next to
+/// - `eat` - no fields: eating one food
 public record ClientMessage(String type, Point position, Point from, List<Point> path, Long boatId, Long nodeId) {
 }

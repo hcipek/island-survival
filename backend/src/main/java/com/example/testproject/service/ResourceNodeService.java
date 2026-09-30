@@ -114,6 +114,9 @@ public class ResourceNodeService {
                 node.setDepletedUntil(now.plus(BERRY_BUSH_REGROW));
             }
             case STICKS -> {
+                // Berries are allowed while starving - otherwise you could
+                // never recover.
+                playerResourcesService.requireNotStarving(resources);
                 playerResourcesService.addWood(resources, WOOD_PER_STICKS);
                 node.setDepletedUntil(now.plus(STICKS_REGROW));
             }

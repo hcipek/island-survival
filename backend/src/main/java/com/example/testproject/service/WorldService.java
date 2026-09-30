@@ -138,6 +138,7 @@ public class WorldService {
         }
         requireValidPlacement(worldId, request);
         PlayerResources resources = playerResourcesService.collected(worldId, owner.getId());
+        playerResourcesService.requireNotStarving(resources);
 
         if (request.type() == BuildingType.LUMBERJACK) {
             long existing = buildingRepository.countByWorldIdAndOwnerIdAndType(
@@ -194,6 +195,7 @@ public class WorldService {
         }
 
         PlayerResources resources = playerResourcesService.collected(worldId, request.ownerId());
+        playerResourcesService.requireNotStarving(resources);
         playerResourcesService.spendWood(resources, BOAT_COST, "a boat");
 
         WorldIsland island = nearestIsland(worldId, port.getX(), port.getY());

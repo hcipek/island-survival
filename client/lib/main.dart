@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
@@ -80,17 +81,36 @@ class WorldData {
 
 /// This player's own resources in the current world.
 class PlayerState {
+  static const double maxHunger = 100;
+
   final double wood;
   final double woodPerSecond;
   final double food;
 
-  PlayerState({required this.wood, required this.woodPerSecond, required this.food});
+  /// 100 is full, 0 is starving.
+  final double hunger;
+
+  /// How fast [hunger] is dropping - zero while not in the world.
+  final double hungerDrainPerSecond;
+
+  PlayerState({
+    required this.wood,
+    required this.woodPerSecond,
+    required this.food,
+    required this.hunger,
+    required this.hungerDrainPerSecond,
+  });
+
+  bool get isStarving => hunger <= 0;
+  bool get canEat => food >= 1 && hunger < maxHunger;
 
   factory PlayerState.fromJson(Map<String, dynamic> json) {
     return PlayerState(
       wood: (json['wood'] as num).toDouble(),
       woodPerSecond: (json['woodPerSecond'] as num).toDouble(),
       food: (json['food'] as num?)?.toDouble() ?? 0,
+      hunger: (json['hunger'] as num?)?.toDouble() ?? maxHunger,
+      hungerDrainPerSecond: (json['hungerDrainPerSecond'] as num?)?.toDouble() ?? 0,
     );
   }
 }
@@ -701,7 +721,12 @@ class _IslandScreenState extends State<IslandScreen> {
 
     // Your own position, and the wood counter, change every frame without
     // any message from the server - redraw the HUD regularly.
-    _hudTimer = Timer.periodic(const Duration(milliseconds: 200), (_) => setState(() {}));
+    _hudTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      setState(() {
+        final game = _game;
+        if (game != null) game.isStarving = _currentIsland?.isStarving ?? false;
+      });
+    });
   }
 
   @override
@@ -845,7 +870,8 @@ class _IslandScreenState extends State<IslandScreen> {
     });
   }
 
-  /// [_island] with the wood produced since it arrived added on.
+  /// [_island] with the wood produced since it arrived added on, and the
+  /// hunger lost since then taken off.
   PlayerState? get _currentIsland {
     final island = _island;
     if (island == null) return null;
@@ -854,12 +880,18 @@ class _IslandScreenState extends State<IslandScreen> {
       wood: island.wood + island.woodPerSecond * seconds,
       woodPerSecond: island.woodPerSecond,
       food: island.food,
+      hunger: max(0, island.hunger - island.hungerDrainPerSecond * seconds),
+      hungerDrainPerSecond: island.hungerDrainPerSecond,
     );
   }
 
   void _showBuildMenu() {
     final game = _game!;
     final messenger = ScaffoldMessenger.of(context);
+    if (_currentIsland?.isStarving ?? false) {
+      _showNotice("You're too hungry to build - pick some berries and eat first");
+      return;
+    }
     // The limit is per player, so only our own lumberjacks count.
     final canBuildLumberjack = !game.lumberjacks.any((l) => game.isOwnedByMe(l.ownerId));
     showModalBottomSheet(
@@ -1117,7 +1149,10 @@ class _IslandScreenState extends State<IslandScreen> {
                   Positioned(
                     top: 16,
                     left: 16,
-                    child: _ResourcesHud(island: _currentIsland!),
+                    child: _ResourcesHud(
+                      island: _currentIsland!,
+                      onEat: () => _send({'type': 'eat'}),
+                    ),
                   ),
                 if (!_connected)
                   const Positioned(
@@ -1273,8 +1308,9 @@ class _CoordinatesHud extends StatelessWidget {
 
 class _ResourcesHud extends StatelessWidget {
   final PlayerState island;
+  final VoidCallback onEat;
 
-  const _ResourcesHud({required this.island});
+  const _ResourcesHud({required this.island, required this.onEat});
 
   @override
   Widget build(BuildContext context) {
@@ -1299,9 +1335,64 @@ class _ResourcesHud extends StatelessWidget {
               amount: island.food.toStringAsFixed(0),
               detail: 'Pick berries to get more',
             ),
+            const SizedBox(height: 10),
+            _HungerBar(island: island, onEat: onEat),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _HungerBar extends StatelessWidget {
+  final PlayerState island;
+  final VoidCallback onEat;
+
+  const _HungerBar({required this.island, required this.onEat});
+
+  @override
+  Widget build(BuildContext context) {
+    final fraction = island.hunger / PlayerState.maxHunger;
+    final color = fraction <= 0.25 ? Colors.redAccent : Colors.lightGreenAccent;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 150,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                island.isStarving ? 'Starving!' : 'Hunger ${island.hunger.ceil()}',
+                style: TextStyle(
+                  color: island.isStarving ? Colors.redAccent : Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: fraction,
+                  minHeight: 8,
+                  color: color,
+                  backgroundColor: Colors.white24,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 10),
+        FilledButton.tonal(
+          onPressed: island.canEat ? onEat : null,
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            minimumSize: const Size(0, 32),
+          ),
+          child: const Text('Eat'),
+        ),
+      ],
     );
   }
 }

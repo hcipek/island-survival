@@ -288,6 +288,10 @@ class IslandGame extends FlameGame {
   /// player. The server has a matching (slightly shorter) cooldown.
   static const double gatherSeconds = 2;
 
+  /// Kept up to date by the Flutter UI from the player's hunger. At zero you
+  /// can still move and pick berries, but not gather sticks or build.
+  bool isStarving = false;
+
   /// What this player is gathering from right now, if anything.
   ResourceNodeComponent? _gatheringFrom;
   double _gatherElapsed = 0;
@@ -341,6 +345,10 @@ class IslandGame extends FlameGame {
     }
     if (_islandAt(node.position) != currentPlayerIsland) {
       onNotice?.call('Sail over to that island first');
+      return;
+    }
+    if (isStarving && node.type == ResourceNodeType.sticks) {
+      onNotice?.call("You're starving - pick some berries and eat first");
       return;
     }
 

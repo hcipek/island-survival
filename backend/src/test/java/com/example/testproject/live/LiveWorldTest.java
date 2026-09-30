@@ -211,6 +211,7 @@ class LiveWorldTest {
         Map<String, Object> bush = list(alice.expect("snapshot"), "nodes").stream()
                 .filter(n -> "BERRY_BUSH".equals(n.get("type"))).findFirst().orElseThrow();
         alice.send(Map.of("type", "join", "position", point(number(bush, "x"), number(bush, "y"))));
+        alice.expect("state");
         bob.expect("playerJoined");
 
         alice.send(Map.of("type", "gather", "nodeId", number(bush, "id")));
@@ -232,6 +233,18 @@ class LiveWorldTest {
         alice.send(Map.of("type", "gather", "nodeId", 1));
 
         assertThat(alice.expect("error").get("message")).isEqualTo("Land on the island first");
+    }
+
+    @Test
+    void eatingUsesFoodAndIsOnlyToldToYou() throws Exception {
+        TestClient bob = connectAndJoin(bobId);
+        TestClient alice = connectAndJoin(aliceId);
+        bob.expect("playerJoined");
+
+        alice.send(Map.of("type", "eat"));
+
+        assertThat(alice.expect("error").get("message")).isEqualTo("You have no food - pick some berries");
+        bob.expectNothing();
     }
 
     @Test
@@ -257,6 +270,8 @@ class LiveWorldTest {
             assertThat(System.currentTimeMillis()).as("join processed").isLessThan(deadline);
             Thread.sleep(10);
         }
+        // Joining starts your hunger clock, and you're told your state.
+        assertThat(number(map(client.expect("state"), "state"), "hungerDrainPerSecond")).isPositive();
         return client;
     }
 

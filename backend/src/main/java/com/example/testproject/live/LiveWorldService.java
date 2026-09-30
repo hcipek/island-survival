@@ -90,6 +90,7 @@ public class LiveWorldService {
         }
 
         playerMovements.remove(movementKey(worldId, userId));
+        playerResourcesService.playerLeft(worldId, userId);
         playerPresenceRepository.findByWorldIdAndUserId(worldId, userId).ifPresent(presence -> {
             presence.setBoatId(null);
             playerPresenceRepository.save(presence);
@@ -109,8 +110,23 @@ public class LiveWorldService {
         playerPresenceRepository.save(presence);
         playerMovements.remove(movementKey(worldId, userId));
 
+        boolean alreadyHereInAnotherTab = registry.joinedUserIds(worldId).contains(userId);
         registry.markJoined(session);
         registry.broadcastExcept(worldId, session, LiveEvents.playerJoined(playerView(presence)));
+
+        if (alreadyHereInAnotherTab) {
+            playerResourcesService.sendStateTo(playerResourcesService.collected(worldId, userId));
+        } else {
+            // Hunger only drops while you're in the world.
+            playerResourcesService.sendStateTo(playerResourcesService.playerEntered(worldId, userId));
+        }
+    }
+
+    public void eat(WebSocketSession session) {
+        long worldId = registry.worldIdOf(session);
+        long userId = registry.userIdOf(session);
+        requireJoined(session);
+        playerResourcesService.sendStateTo(playerResourcesService.eat(worldId, userId));
     }
 
     public void move(WebSocketSession session, Point from, List<Point> path) {
