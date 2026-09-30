@@ -23,12 +23,19 @@ public final class LiveEvents {
             List<Map<String, Object>> players,
             List<Map<String, Object>> nodes,
             Map<String, Object> inventory,
-            List<Map<String, Object>> recipes
+            List<Map<String, Object>> recipes,
+            Map<String, Object> you
     ) {
         return event(
                 "snapshot", "state", state, "buildings", buildings, "boats", boats, "players", players,
-                "nodes", nodes, "inventory", inventory, "recipes", recipes
+                "nodes", nodes, "inventory", inventory, "recipes", recipes, "you", you
         );
+    }
+
+    /// Where the player receiving a snapshot was when they last left, or
+    /// null for their first time in the world.
+    public static Map<String, Object> position(double x, double y, Long boatId) {
+        return fields("x", x, "y", y, "boatId", boatId);
     }
 
     public static Map<String, Object> state(PlayerStateDto state) {

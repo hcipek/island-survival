@@ -136,10 +136,8 @@ public class LiveWorldService {
         if (registry.joinedUserIds(worldId).isEmpty()) {
             worldService.markActive(worldId); // the last player just left
         }
-        playerPresenceRepository.findByWorldIdAndUserId(worldId, userId).ifPresent(presence -> {
-            presence.setBoatId(null);
-            playerPresenceRepository.save(presence);
-        });
+        // Where they were (and which boat they were on) stays stored, so
+        // they come back to the same spot - see [snapshot].
         registry.broadcast(worldId, LiveEvents.playerLeft(userId));
     }
 
@@ -334,11 +332,17 @@ public class LiveWorldService {
                 .map(this::playerView)
                 .toList();
 
+        // Where this player was when they last left: the client puts them
+        // back there (aboard their boat, if they were on one).
+        Map<String, Object> you = playerPresenceRepository.findByWorldIdAndUserId(worldId, excludingUserId)
+                .map(p -> LiveEvents.position(p.getX(), p.getY(), p.getBoatId()))
+                .orElse(null);
+
         resourceNodeService.ensureNodes(worldId);
         return LiveEvents.snapshot(
                 worldService.getState(worldId, excludingUserId), worldService.getBuildings(worldId), boats, players,
                 resourceNodeService.nodesView(worldId), inventoryService.view(worldId, excludingUserId),
-                craftingService.recipesView()
+                craftingService.recipesView(), you
         );
     }
 

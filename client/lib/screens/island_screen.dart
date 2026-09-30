@@ -197,6 +197,7 @@ class _IslandScreenState extends State<IslandScreen> {
   }
 
   void _startGame(Map<String, dynamic> snapshot) {
+    final lastPosition = lastPositionFromJson(snapshot['you']);
     _setPlayerState(snapshot['state']);
     _setInventory(snapshot['inventory']);
     _recipes = listFromJson(snapshot['recipes'], Recipe.fromJson);
@@ -206,6 +207,8 @@ class _IslandScreenState extends State<IslandScreen> {
       existingBoats: listFromJson(snapshot['boats'], boatFromJson),
       existingPlayers: listFromJson(snapshot['players'], playerFromJson),
       existingNodes: listFromJson(snapshot['nodes'], nodeFromJson),
+      startPosition: lastPosition?.position,
+      startBoatId: lastPosition?.boatId,
       userId: widget.userId,
       username: widget.username,
       playerColor: widget.userColor,

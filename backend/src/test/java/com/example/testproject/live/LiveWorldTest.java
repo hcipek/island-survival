@@ -404,6 +404,38 @@ class LiveWorldTest {
     }
 
     @Test
+    void comingBackPutsYouWhereYouLeft() throws Exception {
+        TestClient first = connect(aliceId);
+        assertThat(first.expect("snapshot").get("you")).isNull(); // first time here
+        first.send(Map.of("type", "join", "position", point(0, 0)));
+        first.expect("state");
+        first.send(Map.of("type", "move", "from", point(0, 0), "path", List.of(point(120, 80))));
+        first.expectNothing(); // let the server take it in
+        first.session.close();
+        awaitNotPlaying(aliceId);
+
+        Map<String, Object> you = map(connect(aliceId).expect("snapshot"), "you");
+
+        assertThat(number(you, "x")).isEqualTo(120);
+        assertThat(number(you, "y")).isEqualTo(80);
+        assertThat(you.get("boatId")).isNull();
+    }
+
+    @Test
+    void leavingWhileAboardKeepsYouOnYourBoat() throws Exception {
+        BoatDto boat = boatForAlice();
+        TestClient first = connectAndJoin(aliceId);
+        first.send(Map.of("type", "board", "boatId", boat.id()));
+        first.expectNothing();
+        first.session.close();
+        awaitNotPlaying(aliceId);
+
+        Map<String, Object> you = map(connect(aliceId).expect("snapshot"), "you");
+
+        assertThat(number(you, "boatId")).isEqualTo(boat.id());
+    }
+
+    @Test
     void onlyOneTabCanPlayAsAUserAtATime() throws Exception {
         TestClient alice = connectAs(worldId, aliceId, "tab-1");
         alice.expect("snapshot");

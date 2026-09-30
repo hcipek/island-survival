@@ -34,6 +34,11 @@ class IslandGame extends FlameGame {
   final List<BoatRecord> existingBoats;
   final List<RemotePlayerRecord> existingPlayers;
   final List<ResourceNodeRecord> existingNodes;
+
+  /// Where this player was when they last left (null the first time), and
+  /// the boat they were aboard, if any - they start from there.
+  final Vector2? startPosition;
+  final int? startBoatId;
   final int userId;
   final String username;
   final Color playerColor;
@@ -47,6 +52,8 @@ class IslandGame extends FlameGame {
     this.existingBoats = const [],
     this.existingPlayers = const [],
     this.existingNodes = const [],
+    this.startPosition,
+    this.startBoatId,
   });
 
   late final World islandWorld;
@@ -178,6 +185,7 @@ class IslandGame extends FlameGame {
       username: username,
       ownerColor: playerColor,
     )..position = homeIsland.position.clone();
+    _placePlayerWhereTheyLeft();
     await islandWorld.add(player);
 
     await islandWorld.add(
@@ -390,6 +398,27 @@ class IslandGame extends FlameGame {
       } else {
         existing.setRegrowsIn(record.regrowsIn);
       }
+    }
+  }
+
+  /// Puts the player back aboard their boat, or on the island they were
+  /// standing on - or on the home island the first time (or if the stored
+  /// spot isn't on land for some reason).
+  void _placePlayerWhereTheyLeft() {
+    final boatId = startBoatId;
+    final boat = boatId == null ? null : _boatById(boatId);
+    if (boat != null && isOwnedByMe(boat.ownerId)) {
+      boat.isSelected = true;
+      player
+        ..boardedBoat = boat
+        ..position = boat.position.clone();
+      return;
+    }
+    final start = startPosition;
+    final island = start == null ? null : _islandAt(start);
+    if (start != null && island != null) {
+      player.position = start.clone();
+      currentPlayerIsland = island;
     }
   }
 

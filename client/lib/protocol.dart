@@ -119,6 +119,12 @@ ResourceNodeRecord nodeFromJson(Map<String, dynamic> json) {
   );
 }
 
+/// Where the player was when they last left, from a snapshot's `you`.
+({Vector2 position, int? boatId})? lastPositionFromJson(Object? json) {
+  if (json is! Map<String, dynamic>) return null;
+  return (position: pointFromJson(json), boatId: json['boatId'] as int?);
+}
+
 Vector2 pointFromJson(Map<String, dynamic> json) {
   return Vector2((json['x'] as num).toDouble(), (json['y'] as num).toDouble());
 }
