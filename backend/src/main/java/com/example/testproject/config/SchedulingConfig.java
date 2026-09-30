@@ -4,7 +4,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-/// Turns on the world's regular background ticks (see `StickSpawner`).
+/// Turns on the world's regular background ticks (see `WorldTicker`).
 /// Tests switch it off with `game.ticks.enabled: false`, so random events
 /// can't interfere with them.
 @Configuration

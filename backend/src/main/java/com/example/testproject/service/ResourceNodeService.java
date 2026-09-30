@@ -46,6 +46,16 @@ public class ResourceNodeService {
     private static final int HOME_STICKS_CAP = 3;
     private static final int OUTER_STICKS_CAP = 4;
 
+    /// How often sticks may drop while someone's playing, and the chance for
+    /// each island below its limit each time - about one every 40 seconds.
+    public static final long STICK_DROP_INTERVAL_MS = 20_000;
+    public static final double STICK_DROP_CHANCE = 0.5;
+
+    /// A safety limit on how many missed ticks a catch-up simulates. Islands
+    /// are full long before this (a few dozen ticks), so it only bounds the
+    /// work after very long absences.
+    private static final long MAX_CATCH_UP_TICKS = 1_000;
+
     /// How many of each the home island gets - kept sparse, since that's
     /// where everyone builds.
     private static final int HOME_TREES = 5;
@@ -144,12 +154,19 @@ public class ResourceNodeService {
         return result;
     }
 
-    /// Fills every island of [worldId] up to its stick limit at once - for
-    /// when someone enters a world nobody was playing in, since sticks only
-    /// drop over time while someone's there.
+    /// Adds the sticks that would have dropped while nobody was in [worldId]:
+    /// the same rolls the regular tick makes, once for every tick missed
+    /// since [lastActiveAt] (as many as needed if it's null). So coming back
+    /// after a few seconds adds nothing, and after a few minutes the islands
+    /// are most likely full again.
     ///
     /// Also clears away sticks from before they stopped regrowing in place.
-    public synchronized StickChanges topUpSticks(long worldId) {
+    public synchronized StickChanges catchUpSticks(long worldId, Instant lastActiveAt) {
+        long missedTicks = lastActiveAt == null
+                ? MAX_CATCH_UP_TICKS
+                : Math.min(MAX_CATCH_UP_TICKS,
+                        Duration.between(lastActiveAt, Instant.now()).toMillis() / STICK_DROP_INTERVAL_MS);
+
         List<ResourceNode> nodes = new ArrayList<>(resourceNodeRepository.findAllByWorldId(worldId));
         List<Long> removedIds = new ArrayList<>();
         for (ResourceNode node : List.copyOf(nodes)) {
@@ -160,26 +177,43 @@ public class ResourceNodeService {
             }
         }
 
-        List<ResourceNode> added = new ArrayList<>();
-        for (WorldIsland island : worldIslandRepository.findAllByWorldId(worldId)) {
-            int missing = sticksCap(island) - sticksOn(island, nodes);
-            added.addAll(placeOn(island, ResourceNodeType.STICKS, missing, nodes, worldId));
-        }
+        List<ResourceNode> added = simulateDrops(worldId, nodes, missedTicks, STICK_DROP_CHANCE);
         return new StickChanges(resourceNodeRepository.saveAll(added), removedIds);
     }
 
-    /// Each island that's below its stick limit has [chance] (0 to 1) of
-    /// one new stick dropping at a random free spot. Called regularly while
-    /// someone is in the world.
+    /// One tick: each island that's below its stick limit has [chance] (0 to
+    /// 1) of a new stick dropping at a random free spot. Called regularly
+    /// while someone is in the world.
     public synchronized List<ResourceNode> dropSticks(long worldId, double chance) {
         List<ResourceNode> nodes = new ArrayList<>(resourceNodeRepository.findAllByWorldId(worldId));
+        return resourceNodeRepository.saveAll(simulateDrops(worldId, nodes, 1, chance));
+    }
+
+    /// Runs [ticks] rounds of drop rolls in memory, adding the new sticks to
+    /// [nodes]. Everything is loaded once up front and it stops as soon as
+    /// no island has room left, so catching up on a long absence costs the
+    /// same few queries as a single tick.
+    private List<ResourceNode> simulateDrops(long worldId, List<ResourceNode> nodes, long ticks, double chance) {
+        List<Building> buildings = buildingRepository.findAllByWorldId(worldId);
+        List<WorldIsland> withRoom = new ArrayList<>(worldIslandRepository.findAllByWorldId(worldId).stream()
+                .filter(island -> sticksOn(island, nodes) < sticksCap(island))
+                .toList());
+
         List<ResourceNode> added = new ArrayList<>();
-        for (WorldIsland island : worldIslandRepository.findAllByWorldId(worldId)) {
-            if (sticksOn(island, nodes) < sticksCap(island) && random.nextDouble() < chance) {
-                added.addAll(placeOn(island, ResourceNodeType.STICKS, 1, nodes, worldId));
+        for (long tick = 0; tick < ticks && !withRoom.isEmpty(); tick++) {
+            for (WorldIsland island : List.copyOf(withRoom)) {
+                if (random.nextDouble() >= chance) {
+                    continue;
+                }
+                List<ResourceNode> dropped = placeOn(island, ResourceNodeType.STICKS, 1, nodes, buildings);
+                added.addAll(dropped);
+                // Full now, or so crowded there's no free spot left.
+                if (dropped.isEmpty() || sticksOn(island, nodes) >= sticksCap(island)) {
+                    withRoom.remove(island);
+                }
             }
         }
-        return resourceNodeRepository.saveAll(added);
+        return added;
     }
 
     public static Map<String, Object> view(ResourceNode node) {
@@ -195,10 +229,11 @@ public class ResourceNodeService {
             return;
         }
         List<ResourceNode> placed = new ArrayList<>();
+        List<Building> buildings = buildingRepository.findAllByWorldId(worldId);
         for (WorldIsland island : worldIslandRepository.findAllByWorldId(worldId)) {
-            placeOn(island, ResourceNodeType.TREE, island.isHome() ? HOME_TREES : outerCount(), placed, worldId);
-            placeOn(island, ResourceNodeType.BERRY_BUSH, island.isHome() ? HOME_BUSHES : outerCount(), placed, worldId);
-            placeOn(island, ResourceNodeType.STICKS, sticksCap(island), placed, worldId);
+            placeOn(island, ResourceNodeType.TREE, island.isHome() ? HOME_TREES : outerCount(), placed, buildings);
+            placeOn(island, ResourceNodeType.BERRY_BUSH, island.isHome() ? HOME_BUSHES : outerCount(), placed, buildings);
+            placeOn(island, ResourceNodeType.STICKS, sticksCap(island), placed, buildings);
         }
         resourceNodeRepository.saveAll(placed);
     }
@@ -234,9 +269,8 @@ public class ResourceNodeService {
     /// [island], adding them to [placed] (which also counts as taken space)
     /// and returning them. Gives up on a node if no free spot turns up.
     private List<ResourceNode> placeOn(
-            WorldIsland island, ResourceNodeType type, int count, List<ResourceNode> placed, long worldId
+            WorldIsland island, ResourceNodeType type, int count, List<ResourceNode> placed, List<Building> buildings
     ) {
-        List<Building> buildings = buildingRepository.findAllByWorldId(worldId);
         List<ResourceNode> added = new ArrayList<>();
         double maxDistance = island.grassRadius() * MAX_DISTANCE_AS_GRASS_FRACTION;
         for (int i = 0; i < count; i++) {

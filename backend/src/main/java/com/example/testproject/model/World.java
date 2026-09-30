@@ -20,6 +20,11 @@ public class World {
     private String name;
     private Instant createdAt = Instant.now();
 
+    /// The last time someone was playing in this world (or its sticks were
+    /// last caught up) - so when someone comes back, the sticks that would
+    /// have dropped in between can be added. Null if never.
+    private Instant lastActiveAt;
+
     protected World() {
     }
 
@@ -37,5 +42,13 @@ public class World {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Instant getLastActiveAt() {
+        return lastActiveAt;
+    }
+
+    public void setLastActiveAt(Instant lastActiveAt) {
+        this.lastActiveAt = lastActiveAt;
     }
 }

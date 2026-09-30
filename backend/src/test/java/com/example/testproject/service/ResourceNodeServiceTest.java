@@ -173,7 +173,7 @@ class ResourceNodeServiceTest {
         for (int i = 0; i < 10; i++) {
             resourceNodeService.dropSticks(worldId, 1.0);
         }
-        resourceNodeService.topUpSticks(worldId);
+        resourceNodeService.catchUpSticks(worldId, null);
 
         for (WorldIsland island : islands) {
             long sticks = nodes().stream()
@@ -186,11 +186,11 @@ class ResourceNodeServiceTest {
     }
 
     @Test
-    void topUpRefillsEveryIslandAtOnce() {
-        nodes().stream().filter(n -> n.getType() == ResourceNodeType.STICKS)
-                .forEach(resourceNodeRepository::delete);
+    void comingBackAfterALongTimeRefillsTheIslands() {
+        removeAllSticks();
 
-        ResourceNodeService.StickChanges changes = resourceNodeService.topUpSticks(worldId);
+        ResourceNodeService.StickChanges changes =
+                resourceNodeService.catchUpSticks(worldId, Instant.now().minusSeconds(3600));
 
         // Up to 3 on the home island and 4 on each of the three outer ones
         // (a crowded small island may fit fewer). The home island is roomy
@@ -202,14 +202,47 @@ class ResourceNodeServiceTest {
     }
 
     @Test
+    void comingBackRightAwayAddsNothing() {
+        removeAllSticks();
+
+        ResourceNodeService.StickChanges changes = resourceNodeService.catchUpSticks(worldId, Instant.now());
+
+        assertThat(changes.added()).isEmpty();
+    }
+
+    @Test
+    void aShortAbsenceOnlyCatchesUpOnTheTicksMissed() {
+        removeAllSticks();
+
+        // 25 seconds is one missed tick: at most one stick per island.
+        ResourceNodeService.StickChanges changes =
+                resourceNodeService.catchUpSticks(worldId, Instant.now().minusSeconds(25));
+
+        assertThat(changes.added()).hasSizeLessThanOrEqualTo(islands.size());
+        assertThat(changes.added().stream().map(ResourceNode::getIslandId).distinct())
+                .hasSize(changes.added().size());
+    }
+
+    @Test
+    void catchingUpOnAVeryLongAbsenceIsStillQuick() {
+        removeAllSticks();
+
+        long started = System.nanoTime();
+        ResourceNodeService.StickChanges changes = resourceNodeService.catchUpSticks(worldId, Instant.EPOCH);
+        long millis = (System.nanoTime() - started) / 1_000_000;
+
+        assertThat(changes.added()).isNotEmpty();
+        assertThat(millis).isLessThan(1_000);
+    }
+
+    @Test
     void sticksDoNotDropOnBuildings() {
         worldService.createBuilding(worldId,
                 new BuildingRequest(BuildingType.LUMBERJACK, 150, 150, aliceId));
-        nodes().stream().filter(n -> n.getType() == ResourceNodeType.STICKS)
-                .forEach(resourceNodeRepository::delete);
+        removeAllSticks();
 
         for (int i = 0; i < 20; i++) {
-            resourceNodeService.topUpSticks(worldId);
+            resourceNodeService.catchUpSticks(worldId, null);
             nodes().stream()
                     .filter(n -> n.getType() == ResourceNodeType.STICKS)
                     .forEach(stick -> assertThat(Math.hypot(stick.getX() - 150, stick.getY() - 150))
@@ -225,7 +258,7 @@ class ResourceNodeServiceTest {
         old.setDepletedUntil(Instant.now().plusSeconds(60));
         resourceNodeRepository.save(old);
 
-        ResourceNodeService.StickChanges changes = resourceNodeService.topUpSticks(worldId);
+        ResourceNodeService.StickChanges changes = resourceNodeService.catchUpSticks(worldId, Instant.now());
 
         assertThat(changes.removedIds()).containsExactly(old.getId());
         assertThat(resourceNodeRepository.findById(old.getId())).isEmpty();
@@ -280,6 +313,11 @@ class ResourceNodeServiceTest {
 
     private void gatherStandingOn(long userId, ResourceNode node) {
         resourceNodeService.gather(worldId, userId, node.getId(), node.getX(), node.getY());
+    }
+
+    private void removeAllSticks() {
+        nodes().stream().filter(n -> n.getType() == ResourceNodeType.STICKS)
+                .forEach(resourceNodeRepository::delete);
     }
 
     private long count(ResourceNodeType type) {

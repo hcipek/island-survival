@@ -16,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -104,6 +105,17 @@ public class WorldService {
         playerResourcesService.deleteAllIn(worldId);
         resourceNodeService.deleteAllIn(worldId);
         worldRepository.deleteById(worldId);
+    }
+
+    public Instant lastActiveAt(long worldId) {
+        return getWorldOrThrow(worldId).getLastActiveAt();
+    }
+
+    public void markActive(long worldId) {
+        worldRepository.findById(worldId).ifPresent(world -> {
+            world.setLastActiveAt(Instant.now());
+            worldRepository.save(world);
+        });
     }
 
     public synchronized List<IslandLocationDto> getIslands(long worldId) {

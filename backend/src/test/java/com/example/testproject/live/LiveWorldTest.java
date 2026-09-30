@@ -8,6 +8,7 @@ import com.example.testproject.model.req.CreateBoatRequest;
 import com.example.testproject.model.req.CreateUserRequest;
 import com.example.testproject.model.req.CreateWorldRequest;
 import com.example.testproject.repository.BoatRepository;
+import com.example.testproject.repository.WorldRepository;
 import com.example.testproject.service.UserService;
 import com.example.testproject.service.WorldService;
 import org.junit.jupiter.api.AfterEach;
@@ -60,7 +61,10 @@ class LiveWorldTest {
     private WorldSessionRegistry registry;
 
     @Autowired
-    private StickSpawner stickSpawner;
+    private WorldTicker worldTicker;
+
+    @Autowired
+    private WorldRepository worldRepository;
 
     private final List<TestClient> clients = new ArrayList<>();
     private long worldId;
@@ -243,12 +247,50 @@ class LiveWorldTest {
         alice.expect("nodeRemoved");
         alice.expect("state");
 
-        stickSpawner.dropSticksInActiveWorlds(1.0);
+        worldTicker.tickActiveWorlds(1.0);
 
         Map<String, Object> dropped = map(bob.expect("nodeAdded"), "node");
         assertThat(dropped.get("type")).isEqualTo("STICKS");
         assertThat(number(dropped, "id")).isNotEqualTo(number(sticks, "id"));
         assertThat(map(alice.expect("nodeAdded"), "node").get("id")).isEqualTo(dropped.get("id"));
+    }
+
+    @Test
+    void leavingAndComingStraightBackDoesNotRefillSticks() throws Exception {
+        TestClient alice = connect(aliceId);
+        List<Map<String, Object>> before = sticksIn(alice.expect("snapshot"));
+        Map<String, Object> sticks = before.getFirst();
+        alice.send(Map.of("type", "join", "position", point(number(sticks, "x"), number(sticks, "y"))));
+        alice.expect("state");
+        alice.send(Map.of("type", "gather", "nodeId", number(sticks, "id")));
+        alice.expect("nodeRemoved");
+        alice.session.close();
+        awaitNobodyIn(worldId);
+
+        TestClient again = connect(aliceId);
+
+        assertThat(sticksIn(again.expect("snapshot"))).hasSize(before.size() - 1);
+    }
+
+    @Test
+    void comingBackAfterALongTimeRefillsSticks() throws Exception {
+        TestClient alice = connect(aliceId);
+        List<Map<String, Object>> full = sticksIn(alice.expect("snapshot"));
+        Map<String, Object> sticks = full.getFirst();
+        alice.send(Map.of("type", "join", "position", point(number(sticks, "x"), number(sticks, "y"))));
+        alice.expect("state");
+        alice.send(Map.of("type", "gather", "nodeId", number(sticks, "id")));
+        alice.expect("nodeRemoved");
+        alice.session.close();
+        awaitNobodyIn(worldId);
+
+        var world = worldRepository.findById(worldId).orElseThrow();
+        world.setLastActiveAt(java.time.Instant.now().minusSeconds(3600));
+        worldRepository.save(world);
+        TestClient again = connect(aliceId);
+
+        // An hour is plenty of missed ticks to fill the islands again.
+        assertThat(sticksIn(again.expect("snapshot"))).hasSize(full.size());
     }
 
     @Test
@@ -279,6 +321,18 @@ class LiveWorldTest {
         TestClient alice = connectTo(worldId + 999_999, aliceId);
 
         assertThat(alice.expect("error").get("message")).isEqualTo("World not found");
+    }
+
+    private static List<Map<String, Object>> sticksIn(Map<String, Object> snapshot) {
+        return list(snapshot, "nodes").stream().filter(n -> "STICKS".equals(n.get("type"))).toList();
+    }
+
+    private void awaitNobodyIn(long worldId) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (!registry.joinedUserIds(worldId).isEmpty()) {
+            assertThat(System.currentTimeMillis()).as("everyone left").isLessThan(deadline);
+            Thread.sleep(10);
+        }
     }
 
     private BoatDto boatForAlice() {

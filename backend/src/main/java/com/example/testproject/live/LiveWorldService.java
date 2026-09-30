@@ -75,11 +75,14 @@ public class LiveWorldService {
 
         synchronized (registry.lockFor(worldId)) {
             // Sticks only drop over time while someone's playing, so a world
-            // nobody was in gets topped up at once. (Only then - otherwise
-            // reconnecting would be a way to refill every island.)
+            // nobody was in catches up on the ones it missed - based on how
+            // long it's been empty, so leaving and coming straight back
+            // doesn't refill anything.
             resourceNodeService.ensureNodes(worldId);
             if (registry.joinedUserIds(worldId).isEmpty()) {
-                ResourceNodeService.StickChanges sticks = resourceNodeService.topUpSticks(worldId);
+                ResourceNodeService.StickChanges sticks =
+                        resourceNodeService.catchUpSticks(worldId, worldService.lastActiveAt(worldId));
+                worldService.markActive(worldId);
                 sticks.removedIds().forEach(id -> registry.broadcast(worldId, LiveEvents.nodeRemoved(id)));
                 sticks.added().forEach(node ->
                         registry.broadcast(worldId, LiveEvents.nodeAdded(ResourceNodeService.view(node))));
@@ -102,6 +105,9 @@ public class LiveWorldService {
 
         playerMovements.remove(movementKey(worldId, userId));
         playerResourcesService.playerLeft(worldId, userId);
+        if (registry.joinedUserIds(worldId).isEmpty()) {
+            worldService.markActive(worldId); // the last player just left
+        }
         playerPresenceRepository.findByWorldIdAndUserId(worldId, userId).ifPresent(presence -> {
             presence.setBoatId(null);
             playerPresenceRepository.save(presence);
