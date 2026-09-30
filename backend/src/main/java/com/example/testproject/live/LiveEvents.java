@@ -75,6 +75,16 @@ public final class LiveEvents {
         return event("nodeDepleted", "nodeId", nodeId, "regrowsInMs", regrowsInMs);
     }
 
+    /// New sticks dropped somewhere.
+    public static Map<String, Object> nodeAdded(Map<String, Object> node) {
+        return event("nodeAdded", "node", node);
+    }
+
+    /// Sticks were picked up, so they're gone.
+    public static Map<String, Object> nodeRemoved(long nodeId) {
+        return event("nodeRemoved", "nodeId", nodeId);
+    }
+
     public static Map<String, Object> error(String message) {
         return event("error", "message", message);
     }

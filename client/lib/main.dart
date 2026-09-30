@@ -857,6 +857,10 @@ class _IslandScreenState extends State<IslandScreen> {
           event['nodeId'] as int,
           Duration(milliseconds: (event['regrowsInMs'] as num).toInt()),
         );
+      case 'nodeAdded':
+        await game.addNode(_nodeFromJson(event['node'] as Map<String, dynamic>));
+      case 'nodeRemoved':
+        game.removeNode(event['nodeId'] as int);
       case 'error':
         _showNotice(event['message'] as String? ?? 'Something went wrong');
     }

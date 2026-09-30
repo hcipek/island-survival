@@ -93,6 +93,14 @@ public class WorldSessionRegistry {
                 .collect(Collectors.toSet());
     }
 
+    /// Worlds with at least one player in them right now.
+    public Set<Long> activeWorldIds() {
+        return sessionsByWorld.entrySet().stream()
+                .filter(entry -> entry.getValue().stream().anyMatch(this::isJoined))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
+    }
+
     /// Sends [event] to everyone connected to [worldId].
     public void broadcast(long worldId, Map<String, Object> event) {
         broadcastExcept(worldId, null, event);

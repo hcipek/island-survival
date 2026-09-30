@@ -59,6 +59,9 @@ class LiveWorldTest {
     @Autowired
     private WorldSessionRegistry registry;
 
+    @Autowired
+    private StickSpawner stickSpawner;
+
     private final List<TestClient> clients = new ArrayList<>();
     private long worldId;
     private long aliceId;
@@ -222,6 +225,30 @@ class LiveWorldTest {
         alice.expect("nodeDepleted");
         assertThat(number(map(alice.expect("state"), "state"), "food")).isEqualTo(3);
         bob.expectNothing();
+    }
+
+    @Test
+    void pickedUpSticksDisappearForEveryoneAndNewOnesDropLater() throws Exception {
+        TestClient bob = connectAndJoin(bobId);
+        TestClient alice = connect(aliceId);
+        Map<String, Object> sticks = list(alice.expect("snapshot"), "nodes").stream()
+                .filter(n -> "STICKS".equals(n.get("type"))).findFirst().orElseThrow();
+        alice.send(Map.of("type", "join", "position", point(number(sticks, "x"), number(sticks, "y"))));
+        alice.expect("state");
+        bob.expect("playerJoined");
+
+        alice.send(Map.of("type", "gather", "nodeId", number(sticks, "id")));
+
+        assertThat(number(bob.expect("nodeRemoved"), "nodeId")).isEqualTo(number(sticks, "id"));
+        alice.expect("nodeRemoved");
+        alice.expect("state");
+
+        stickSpawner.dropSticksInActiveWorlds(1.0);
+
+        Map<String, Object> dropped = map(bob.expect("nodeAdded"), "node");
+        assertThat(dropped.get("type")).isEqualTo("STICKS");
+        assertThat(number(dropped, "id")).isNotEqualTo(number(sticks, "id"));
+        assertThat(map(alice.expect("nodeAdded"), "node").get("id")).isEqualTo(dropped.get("id"));
     }
 
     @Test

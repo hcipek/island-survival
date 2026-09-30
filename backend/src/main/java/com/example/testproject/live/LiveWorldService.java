@@ -74,6 +74,17 @@ public class LiveWorldService {
         worldService.getState(worldId, userId); // fails fast if the world doesn't exist
 
         synchronized (registry.lockFor(worldId)) {
+            // Sticks only drop over time while someone's playing, so a world
+            // nobody was in gets topped up at once. (Only then - otherwise
+            // reconnecting would be a way to refill every island.)
+            resourceNodeService.ensureNodes(worldId);
+            if (registry.joinedUserIds(worldId).isEmpty()) {
+                ResourceNodeService.StickChanges sticks = resourceNodeService.topUpSticks(worldId);
+                sticks.removedIds().forEach(id -> registry.broadcast(worldId, LiveEvents.nodeRemoved(id)));
+                sticks.added().forEach(node ->
+                        registry.broadcast(worldId, LiveEvents.nodeAdded(ResourceNodeService.view(node))));
+            }
+
             registry.register(worldId, userId, session);
             registry.send(session, snapshot(worldId, userId));
         }
@@ -212,8 +223,12 @@ public class LiveWorldService {
         ResourceNodeService.GatherResult result =
                 resourceNodeService.gather(worldId, userId, nodeId, presence.getX(), presence.getY());
 
-        registry.broadcast(worldId, LiveEvents.nodeDepleted(
-                result.node().getId(), ResourceNodeService.regrowsInMillis(result.node(), Instant.now())));
+        if (result.removed()) {
+            registry.broadcast(worldId, LiveEvents.nodeRemoved(result.node().getId()));
+        } else {
+            registry.broadcast(worldId, LiveEvents.nodeDepleted(
+                    result.node().getId(), ResourceNodeService.regrowsInMillis(result.node(), Instant.now())));
+        }
         playerResourcesService.sendStateTo(result.resources());
     }
 

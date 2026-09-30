@@ -308,7 +308,8 @@ class IslandGame extends FlameGame {
   void _updateGathering(double dt) {
     final node = _gatheringFrom;
     if (node == null) return;
-    if (!node.isAvailable) {
+    // Picked by someone else first: a bush goes bare, sticks vanish.
+    if (!node.isAvailable || resourceNodes[node.id] != node) {
       _stopGathering();
       onNotice?.call('Someone else got there first');
       return;
@@ -365,6 +366,17 @@ class IslandGame extends FlameGame {
   /// Someone (maybe us) gathered from a node; it's bare for [regrowsIn].
   void depleteNode(int nodeId, Duration regrowsIn) {
     resourceNodes[nodeId]?.setRegrowsIn(regrowsIn);
+  }
+
+  /// New sticks dropped somewhere.
+  Future<void> addNode(ResourceNodeRecord record) async {
+    if (resourceNodes.containsKey(record.id)) return;
+    await _spawnNode(record);
+  }
+
+  /// Sticks were picked up (by anyone), so they're gone.
+  void removeNode(int nodeId) {
+    resourceNodes.remove(nodeId)?.removeFromParent();
   }
 
   /// Snaps the camera back to following the player after a free-look pan.

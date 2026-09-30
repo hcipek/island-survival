@@ -7,3 +7,8 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
+
+# No background ticks (e.g. sticks dropping at random) during tests.
+game:
+  ticks:
+    enabled: false

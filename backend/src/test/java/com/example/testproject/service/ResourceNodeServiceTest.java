@@ -1,8 +1,10 @@
 package com.example.testproject.service;
 
+import com.example.testproject.model.BuildingType;
 import com.example.testproject.model.ResourceNode;
 import com.example.testproject.model.ResourceNodeType;
 import com.example.testproject.model.WorldIsland;
+import com.example.testproject.model.req.BuildingRequest;
 import com.example.testproject.model.req.CreateUserRequest;
 import com.example.testproject.model.req.CreateWorldRequest;
 import com.example.testproject.repository.ResourceNodeRepository;
@@ -79,7 +81,7 @@ class ResourceNodeServiceTest {
 
         assertThat(counts).containsEntry(ResourceNodeType.TREE, 5L)
                 .containsEntry(ResourceNodeType.BERRY_BUSH, 2L)
-                .containsEntry(ResourceNodeType.STICKS, 2L);
+                .containsEntry(ResourceNodeType.STICKS, 3L);
     }
 
     @Test
@@ -141,6 +143,95 @@ class ResourceNodeServiceTest {
     }
 
     @Test
+    void pickedUpSticksAreGoneRatherThanRegrowing() {
+        ResourceNode sticks = first(ResourceNodeType.STICKS);
+
+        ResourceNodeService.GatherResult result =
+                resourceNodeService.gather(worldId, aliceId, sticks.getId(), sticks.getX(), sticks.getY());
+
+        assertThat(result.removed()).isTrue();
+        assertThat(resourceNodeRepository.findById(sticks.getId())).isEmpty();
+    }
+
+    @Test
+    void newSticksDropSomewhereElseAfterSomeArePickedUp() {
+        ResourceNode sticks = first(ResourceNodeType.STICKS);
+        long before = count(ResourceNodeType.STICKS);
+        gatherStandingOn(aliceId, sticks);
+
+        List<ResourceNode> dropped = resourceNodeService.dropSticks(worldId, 1.0);
+
+        assertThat(dropped).singleElement().satisfies(stick -> {
+            assertThat(stick.getId()).isNotEqualTo(sticks.getId());
+            assertThat(stick.getIslandId()).isEqualTo(sticks.getIslandId());
+        });
+        assertThat(count(ResourceNodeType.STICKS)).isEqualTo(before);
+    }
+
+    @Test
+    void islandsNeverHaveMoreSticksThanTheLimit() {
+        for (int i = 0; i < 10; i++) {
+            resourceNodeService.dropSticks(worldId, 1.0);
+        }
+        resourceNodeService.topUpSticks(worldId);
+
+        for (WorldIsland island : islands) {
+            long sticks = nodes().stream()
+                    .filter(n -> n.getType() == ResourceNodeType.STICKS && n.getIslandId().equals(island.getId()))
+                    .count();
+            // A small, crowded island may not have room for all of them, so
+            // this checks the limit rather than an exact count.
+            assertThat(sticks).as("island %s", island.getId()).isLessThanOrEqualTo(island.isHome() ? 3 : 4);
+        }
+    }
+
+    @Test
+    void topUpRefillsEveryIslandAtOnce() {
+        nodes().stream().filter(n -> n.getType() == ResourceNodeType.STICKS)
+                .forEach(resourceNodeRepository::delete);
+
+        ResourceNodeService.StickChanges changes = resourceNodeService.topUpSticks(worldId);
+
+        // Up to 3 on the home island and 4 on each of the three outer ones
+        // (a crowded small island may fit fewer). The home island is roomy
+        // enough to always get all 3.
+        WorldIsland home = islands.stream().filter(WorldIsland::isHome).findFirst().orElseThrow();
+        assertThat(changes.added()).hasSizeBetween(3 + 3, 15);
+        assertThat(changes.added().stream().filter(n -> n.getIslandId().equals(home.getId()))).hasSize(3);
+        assertThat(count(ResourceNodeType.STICKS)).isEqualTo(changes.added().size());
+    }
+
+    @Test
+    void sticksDoNotDropOnBuildings() {
+        worldService.createBuilding(worldId,
+                new BuildingRequest(BuildingType.LUMBERJACK, 150, 150, aliceId));
+        nodes().stream().filter(n -> n.getType() == ResourceNodeType.STICKS)
+                .forEach(resourceNodeRepository::delete);
+
+        for (int i = 0; i < 20; i++) {
+            resourceNodeService.topUpSticks(worldId);
+            nodes().stream()
+                    .filter(n -> n.getType() == ResourceNodeType.STICKS)
+                    .forEach(stick -> assertThat(Math.hypot(stick.getX() - 150, stick.getY() - 150))
+                            .isGreaterThanOrEqualTo(70));
+            nodes().stream().filter(n -> n.getType() == ResourceNodeType.STICKS)
+                    .forEach(resourceNodeRepository::delete);
+        }
+    }
+
+    @Test
+    void oldRegrowingSticksAreClearedAway() {
+        ResourceNode old = first(ResourceNodeType.STICKS);
+        old.setDepletedUntil(Instant.now().plusSeconds(60));
+        resourceNodeRepository.save(old);
+
+        ResourceNodeService.StickChanges changes = resourceNodeService.topUpSticks(worldId);
+
+        assertThat(changes.removedIds()).containsExactly(old.getId());
+        assertThat(resourceNodeRepository.findById(old.getId())).isEmpty();
+    }
+
+    @Test
     void aPickedBushIsGoneForEveryoneUntilItRegrows() {
         ResourceNode bush = first(ResourceNodeType.BERRY_BUSH);
         gatherStandingOn(aliceId, bush);
@@ -189,6 +280,10 @@ class ResourceNodeServiceTest {
 
     private void gatherStandingOn(long userId, ResourceNode node) {
         resourceNodeService.gather(worldId, userId, node.getId(), node.getX(), node.getY());
+    }
+
+    private long count(ResourceNodeType type) {
+        return nodes().stream().filter(n -> n.getType() == type).count();
     }
 
     private ResourceNode first(ResourceNodeType type) {
