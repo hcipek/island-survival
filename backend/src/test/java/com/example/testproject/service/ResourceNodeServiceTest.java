@@ -189,9 +189,9 @@ class ResourceNodeServiceTest {
 
         List<ResourceNode> dropped = resourceNodeService.dropLooseNodes(worldId, 1.0);
 
-        // Only sticks are below their limit, so that's what drops.
-        assertThat(dropped).singleElement().satisfies(stick -> {
-            assertThat(stick.getType()).isEqualTo(ResourceNodeType.STICKS);
+        // A crowded outer island may also get a stone it had no room for when
+        // the world was made, so look at the sticks only.
+        assertThat(dropped).filteredOn(n -> n.getType() == ResourceNodeType.STICKS).singleElement().satisfies(stick -> {
             assertThat(stick.getId()).isNotEqualTo(sticks.getId());
             assertThat(stick.getIslandId()).isEqualTo(sticks.getIslandId());
         });
@@ -225,11 +225,14 @@ class ResourceNodeServiceTest {
         // Up to 3 on the home island and 4 on each of the three outer ones
         // (a crowded small island may fit fewer). The home island is roomy
         // enough to always get all 3.
+        // (A crowded island may also get a stone it had no room for before,
+        // so this looks at sticks only.)
         WorldIsland home = islands.stream().filter(WorldIsland::isHome).findFirst().orElseThrow();
-        assertThat(changes.added()).hasSizeBetween(3 + 3, 15)
-                .allSatisfy(n -> assertThat(n.getType()).isEqualTo(ResourceNodeType.STICKS));
-        assertThat(changes.added().stream().filter(n -> n.getIslandId().equals(home.getId()))).hasSize(3);
-        assertThat(count(ResourceNodeType.STICKS)).isEqualTo(changes.added().size());
+        List<ResourceNode> sticks = changes.added().stream()
+                .filter(n -> n.getType() == ResourceNodeType.STICKS).toList();
+        assertThat(sticks).hasSizeBetween(3 + 3, 15);
+        assertThat(sticks.stream().filter(n -> n.getIslandId().equals(home.getId()))).hasSize(3);
+        assertThat(count(ResourceNodeType.STICKS)).isEqualTo(sticks.size());
     }
 
     @Test
@@ -245,13 +248,16 @@ class ResourceNodeServiceTest {
     void aShortAbsenceOnlyCatchesUpOnTheTicksMissed() {
         removeAllSticks();
 
-        // 25 seconds is one missed tick: at most one stick per island.
+        // 25 seconds is one missed tick: at most one stick per island. (A
+        // crowded island may also get a stone it had no room for before, so
+        // this looks at sticks only.)
         ResourceNodeService.LooseNodeChanges changes =
                 resourceNodeService.catchUpLooseNodes(worldId, Instant.now().minusSeconds(25));
 
-        assertThat(changes.added()).hasSizeLessThanOrEqualTo(islands.size());
-        assertThat(changes.added().stream().map(ResourceNode::getIslandId).distinct())
-                .hasSize(changes.added().size());
+        List<ResourceNode> sticks = changes.added().stream()
+                .filter(n -> n.getType() == ResourceNodeType.STICKS).toList();
+        assertThat(sticks).hasSizeLessThanOrEqualTo(islands.size());
+        assertThat(sticks.stream().map(ResourceNode::getIslandId).distinct()).hasSize(sticks.size());
     }
 
     @Test

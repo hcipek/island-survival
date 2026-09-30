@@ -11,13 +11,18 @@ class UserData {
   final String name;
   final Color color;
 
-  UserData({required this.id, required this.name, required this.color});
+  /// Someone is playing as this user right now, so nobody else can pick it
+  /// until they leave.
+  final bool playing;
+
+  UserData({required this.id, required this.name, required this.color, this.playing = false});
 
   factory UserData.fromJson(Map<String, dynamic> json) {
     return UserData(
       id: json['id'] as int,
       name: json['name'] as String,
       color: colorFromHex(json['color'] as String),
+      playing: json['playing'] as bool? ?? false,
     );
   }
 }
@@ -66,8 +71,11 @@ class IslandApi {
   static final _baseUrl = 'http://${Uri.base.host}:8080';
 
   /// The live connection for [userId] in [worldId] - see [LiveConnection].
-  Uri liveUrl(int worldId, int userId) =>
-      Uri.parse('ws://${Uri.base.host}:8080/ws/worlds/$worldId?userId=$userId');
+  /// [clientId] identifies this browser tab, so it can take over its own
+  /// connection after reconnecting - while other tabs can't play as the
+  /// same user at the same time.
+  Uri liveUrl(int worldId, int userId, String clientId) =>
+      Uri.parse('ws://${Uri.base.host}:8080/ws/worlds/$worldId?userId=$userId&clientId=$clientId');
 
   Future<List<UserData>> fetchUsers() async {
     final response = await http.get(Uri.parse('$_baseUrl/api/users'));

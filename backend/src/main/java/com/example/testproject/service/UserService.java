@@ -1,6 +1,7 @@
 package com.example.testproject.service;
 
 import com.example.testproject.model.req.CreateUserRequest;
+import com.example.testproject.live.WorldSessionRegistry;
 import com.example.testproject.model.User;
 import com.example.testproject.model.dto.UserDto;
 import com.example.testproject.repository.UserRepository;
@@ -9,20 +10,26 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Set;
 import java.util.Random;
 
 @Service
 public class UserService {
 
     private final UserRepository userRepository;
+    private final WorldSessionRegistry sessionRegistry;
     private final Random random = new Random();
 
-    public UserService(UserRepository userRepository) {
+    public UserService(UserRepository userRepository, WorldSessionRegistry sessionRegistry) {
         this.userRepository = userRepository;
+        this.sessionRegistry = sessionRegistry;
     }
 
     public List<UserDto> listUsers() {
-        return userRepository.findAll().stream().map(UserDto::from).toList();
+        Set<Long> playing = sessionRegistry.playingUserIds();
+        return userRepository.findAll().stream()
+                .map(user -> UserDto.from(user, playing.contains(user.getId())))
+                .toList();
     }
 
     public UserDto createUser(CreateUserRequest request) {
@@ -33,7 +40,7 @@ public class UserService {
         if (userRepository.findFirstByNameIgnoreCase(name).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "That name is already taken");
         }
-        return UserDto.from(userRepository.save(new User(name, randomColor())));
+        return UserDto.from(userRepository.save(new User(name, randomColor())), false);
     }
 
     /// A random but consistently vivid/readable color (fixed saturation and

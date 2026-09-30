@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api.dart';
@@ -25,17 +27,40 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   bool _creatingUser = false;
   bool _creatingWorld = false;
 
+  /// Keeps "who's playing" up to date, so a user frees up here as soon as
+  /// its player leaves.
+  Timer? _refreshTimer;
+
   @override
   void initState() {
     super.initState();
     _loadAll();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) => _refreshUsers());
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     _newUserController.dispose();
     _newWorldController.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshUsers() async {
+    try {
+      final users = await _api.fetchUsers();
+      if (!mounted) return;
+      setState(() {
+        _users = users;
+        // Someone else started playing as the user we'd picked.
+        final picked = _selectedUser;
+        if (picked != null && users.any((u) => u.id == picked.id && u.playing)) {
+          _selectedUser = null;
+        }
+      });
+    } catch (_) {
+      // Keep showing the last list; the next tick tries again.
+    }
   }
 
   Future<void> _loadAll() async {
@@ -135,11 +160,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     }
   }
 
-  void _enter() {
+  Future<void> _enter() async {
     final user = _selectedUser;
     final world = _selectedWorld;
     if (user == null || world == null) return;
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => IslandScreen(
           userId: user.id,
@@ -150,6 +175,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         ),
       ),
     );
+    // Back from the world: the list of who's playing has changed.
+    await _refreshUsers();
   }
 
   @override
@@ -178,6 +205,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                         items: _users!,
                         selected: _selectedUser,
                         labelOf: (u) => u.name,
+                        idOf: (u) => u.id,
+                        unavailableReasonOf: (u) => u.playing ? 'playing' : null,
                         colorOf: (u) => u.color,
                         onSelect: (u) => setState(() => _selectedUser = u),
                         newItemController: _newUserController,
@@ -191,6 +220,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                         items: _worlds!,
                         selected: _selectedWorld,
                         labelOf: (w) => w.name,
+                        idOf: (w) => w.id,
                         onSelect: (w) => setState(() => _selectedWorld = w),
                         onDelete: _confirmDeleteWorld,
                         newItemController: _newWorldController,
@@ -221,6 +251,12 @@ class _PickerSection<T> extends StatelessWidget {
   final List<T> items;
   final T? selected;
   final String Function(T) labelOf;
+
+  /// Items are compared by this, since the list is reloaded now and then.
+  final Object Function(T) idOf;
+
+  /// Why an item can't be picked right now, if it can't - shown on its chip.
+  final String? Function(T)? unavailableReasonOf;
   final ValueChanged<T> onSelect;
   final void Function(T)? onDelete;
   final Color Function(T)? colorOf;
@@ -234,6 +270,8 @@ class _PickerSection<T> extends StatelessWidget {
     required this.items,
     required this.selected,
     required this.labelOf,
+    required this.idOf,
+    this.unavailableReasonOf,
     required this.onSelect,
     this.onDelete,
     this.colorOf,
@@ -263,13 +301,17 @@ class _PickerSection<T> extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: items.map((item) {
-                  final isSelected = selected == item;
+                  final picked = selected;
+                  final isSelected = picked != null && idOf(picked) == idOf(item);
+                  final unavailable = unavailableReasonOf?.call(item);
                   return InputChip(
                     avatar: colorOf != null
                         ? CircleAvatar(backgroundColor: colorOf!(item))
                         : null,
-                    label: Text(labelOf(item)),
+                    label: Text(unavailable == null ? labelOf(item) : '${labelOf(item)} ($unavailable)'),
                     selected: isSelected,
+                    isEnabled: unavailable == null,
+                    tooltip: unavailable == null ? null : '${labelOf(item)} is $unavailable right now',
                     onPressed: () => onSelect(item),
                     onDeleted: onDelete != null ? () => onDelete!(item) : null,
                     deleteIcon: onDelete != null

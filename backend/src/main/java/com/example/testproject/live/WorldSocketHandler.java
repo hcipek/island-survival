@@ -12,9 +12,10 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.UUID;
 
 /// The live connection for one player in one world, at
-/// `/ws/worlds/{worldId}?userId={userId}`. See [ClientMessage] for what
+/// `/ws/worlds/{worldId}?userId={userId}&clientId={tab id}`. See [ClientMessage] for what
 /// clients send and [LiveEvents] for what they get back.
 @Component
 public class WorldSocketHandler extends TextWebSocketHandler {
@@ -35,8 +36,16 @@ public class WorldSocketHandler extends TextWebSocketHandler {
         try {
             String path = uri.getPath();
             long worldId = Long.parseLong(path.substring(path.lastIndexOf('/') + 1));
-            String userId = UriComponentsBuilder.fromUri(uri).build().getQueryParams().getFirst("userId");
-            liveWorldService.connect(session, worldId, Long.parseLong(userId));
+            var params = UriComponentsBuilder.fromUri(uri).build().getQueryParams();
+            String userId = params.getFirst("userId");
+            // Identifies the browser tab, so it can take over its own
+            // connection after reconnecting. Without one, every connection
+            // counts as a different tab.
+            String clientId = params.getFirst("clientId");
+            if (clientId == null || clientId.isBlank()) {
+                clientId = UUID.randomUUID().toString();
+            }
+            liveWorldService.connect(session, worldId, Long.parseLong(userId), clientId);
         } catch (NumberFormatException | NullPointerException e) {
             rejectConnection(session, "Expected /ws/worlds/{worldId}?userId={userId}");
         } catch (ResponseStatusException e) {

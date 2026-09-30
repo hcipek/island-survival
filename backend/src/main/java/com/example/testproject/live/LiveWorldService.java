@@ -15,8 +15,10 @@ import com.example.testproject.service.WorldService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -77,10 +79,19 @@ public class LiveWorldService {
     /// Registers a new socket and sends it everything it needs to draw the
     /// world as it is right now. Its player isn't visible to others until it
     /// sends `join`.
-    public void connect(WebSocketSession session, long worldId, long userId) {
-        userRepository.findById(userId)
+    ///
+    /// Only one browser tab can play as a user at a time: [clientId]
+    /// identifies the tab, so the same tab reconnecting takes over, while
+    /// anyone else is refused until that user leaves.
+    public void connect(WebSocketSession session, long worldId, long userId, String clientId) {
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown user"));
         worldService.getState(worldId, userId); // fails fast if the world doesn't exist
+
+        WorldSessionRegistry.Takeover takeover = registry.claimUser(userId, clientId, session, user.getName());
+        if (takeover != null) {
+            closeQuietly(takeover.previous());
+        }
 
         synchronized (registry.lockFor(worldId)) {
             // Sticks and stones only drop over time while someone's playing,
@@ -99,6 +110,14 @@ public class LiveWorldService {
 
             registry.register(worldId, userId, session);
             registry.send(session, snapshot(worldId, userId));
+        }
+    }
+
+    private static void closeQuietly(WebSocketSession session) {
+        try {
+            session.close(CloseStatus.NORMAL.withReason("Replaced by a newer connection"));
+        } catch (IOException | RuntimeException ignored) {
+            // Already gone - that's all we wanted.
         }
     }
 

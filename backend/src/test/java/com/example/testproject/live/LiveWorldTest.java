@@ -404,6 +404,54 @@ class LiveWorldTest {
     }
 
     @Test
+    void onlyOneTabCanPlayAsAUserAtATime() throws Exception {
+        TestClient alice = connectAs(worldId, aliceId, "tab-1");
+        alice.expect("snapshot");
+
+        TestClient someoneElse = connectAs(worldId, aliceId, "tab-2");
+
+        assertThat((String) someoneElse.expect("error").get("message")).endsWith("is already playing");
+        awaitClosed(someoneElse);
+        assertThat(alice.session.isOpen()).isTrue();
+    }
+
+    @Test
+    void theSameTabReconnectingTakesOver() throws Exception {
+        TestClient before = connectAs(worldId, aliceId, "tab-1");
+        before.expect("snapshot");
+
+        TestClient after = connectAs(worldId, aliceId, "tab-1");
+
+        after.expect("snapshot");
+        awaitClosed(before);
+    }
+
+    @Test
+    void aUserIsFreeAgainOnceTheyLeave() throws Exception {
+        TestClient alice = connectAs(worldId, aliceId, "tab-1");
+        alice.expect("snapshot");
+        alice.session.close();
+        awaitNotPlaying(aliceId);
+
+        TestClient someoneElse = connectAs(worldId, aliceId, "tab-2");
+
+        someoneElse.expect("snapshot");
+    }
+
+    @Test
+    void theUserListShowsWhoIsPlaying() throws Exception {
+        TestClient alice = connect(aliceId);
+        alice.expect("snapshot");
+
+        assertThat(userService.listUsers())
+                .filteredOn(u -> u.id() == aliceId).singleElement()
+                .satisfies(u -> assertThat(u.playing()).isTrue());
+        assertThat(userService.listUsers())
+                .filteredOn(u -> u.id() == bobId).singleElement()
+                .satisfies(u -> assertThat(u.playing()).isFalse());
+    }
+
+    @Test
     void unknownWorldIsRejected() throws Exception {
         TestClient alice = connectTo(worldId + 999_999, aliceId);
 
@@ -425,6 +473,22 @@ class LiveWorldTest {
 
     private static List<Map<String, Object>> sticksIn(Map<String, Object> snapshot) {
         return list(snapshot, "nodes").stream().filter(n -> "STICKS".equals(n.get("type"))).toList();
+    }
+
+    private void awaitClosed(TestClient client) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (client.session.isOpen()) {
+            assertThat(System.currentTimeMillis()).as("connection closed").isLessThan(deadline);
+            Thread.sleep(10);
+        }
+    }
+
+    private void awaitNotPlaying(long userId) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (registry.playingUserIds().contains(userId)) {
+            assertThat(System.currentTimeMillis()).as("user released").isLessThan(deadline);
+            Thread.sleep(10);
+        }
     }
 
     private void awaitNobodyIn(long worldId) throws InterruptedException {
@@ -463,9 +527,15 @@ class LiveWorldTest {
     }
 
     private TestClient connectTo(long worldId, long userId) throws Exception {
+        return connectAs(worldId, userId, UUID.randomUUID().toString());
+    }
+
+    /// Connects as the browser tab [clientId].
+    private TestClient connectAs(long worldId, long userId, String clientId) throws Exception {
         TestClient client = new TestClient();
         client.session = new StandardWebSocketClient()
-                .execute(client, "ws://localhost:{port}/ws/worlds/{worldId}?userId={userId}", port, worldId, userId)
+                .execute(client, "ws://localhost:{port}/ws/worlds/{worldId}?userId={userId}&clientId={clientId}",
+                        port, worldId, userId, clientId)
                 .get(5, TimeUnit.SECONDS);
         clients.add(client);
         return client;

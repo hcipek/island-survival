@@ -2,13 +2,16 @@ package com.example.testproject.live;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,6 +42,18 @@ public class WorldSessionRegistry {
     /// several threads at once, keyed by session id.
     private final Map<String, WebSocketSession> senders = new ConcurrentHashMap<>();
 
+    /// Who is playing as each user right now (in any world): one browser
+    /// tab at a time, identified by the id it sends when connecting.
+    private final Map<Long, Claim> claims = new HashMap<>();
+
+    private record Claim(String clientId, WebSocketSession session) {
+    }
+
+    /// The same tab took over its user again (e.g. it reconnected after its
+    /// connection dropped, before the server noticed the old one was gone).
+    public record Takeover(WebSocketSession previous) {
+    }
+
     public WorldSessionRegistry(JsonMapper jsonMapper) {
         this.jsonMapper = jsonMapper;
     }
@@ -57,7 +72,31 @@ public class WorldSessionRegistry {
         sessionsByWorld.computeIfAbsent(worldId, id -> ConcurrentHashMap.newKeySet()).add(session);
     }
 
+    /// Lets the tab [clientId] play as [userId] through [session], unless
+    /// another tab is already doing so. If this same tab still has an older
+    /// session open, that one is handed back to be closed.
+    ///
+    /// Returns null when there was nothing to take over, and throws if
+    /// someone else is playing as this user.
+    public synchronized Takeover claimUser(long userId, String clientId, WebSocketSession session, String userName) {
+        Claim current = claims.get(userId);
+        if (current != null && current.session().isOpen() && !current.clientId().equals(clientId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, userName + " is already playing");
+        }
+        claims.put(userId, new Claim(clientId, session));
+        return current != null && current.session().isOpen() ? new Takeover(current.session()) : null;
+    }
+
+    /// Users someone is playing as right now, in any world.
+    public synchronized Set<Long> playingUserIds() {
+        return claims.entrySet().stream()
+                .filter(entry -> entry.getValue().session().isOpen())
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
+    }
+
     public void unregister(WebSocketSession session) {
+        releaseClaim(session);
         Long worldId = worldIdOf(session);
         if (worldId != null) {
             Set<WebSocketSession> sessions = sessionsByWorld.get(worldId);
@@ -66,6 +105,10 @@ public class WorldSessionRegistry {
             }
         }
         senders.remove(session.getId());
+    }
+
+    private synchronized void releaseClaim(WebSocketSession session) {
+        claims.values().removeIf(claim -> claim.session() == session);
     }
 
     public Long worldIdOf(WebSocketSession session) {

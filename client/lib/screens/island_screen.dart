@@ -34,6 +34,9 @@ class IslandScreen extends StatefulWidget {
 }
 
 class _IslandScreenState extends State<IslandScreen> {
+  /// Identifies this tab to the server - the same one is used when
+  /// reconnecting, so it can take over its own old connection.
+  final String _clientId = '${Random().nextInt(1 << 32)}-${DateTime.now().microsecondsSinceEpoch}';
   final IslandApi _api = IslandApi();
   IslandGame? _game;
   LiveConnection? _live;
@@ -90,7 +93,7 @@ class _IslandScreenState extends State<IslandScreen> {
     }
 
     _live = LiveConnection(
-      url: _api.liveUrl(widget.worldId, widget.userId),
+      url: _api.liveUrl(widget.worldId, widget.userId, _clientId),
       onEvent: _onLiveEvent,
       onStatusChanged: (connected) {
         if (mounted) setState(() => _connected = connected);
@@ -179,7 +182,11 @@ class _IslandScreenState extends State<IslandScreen> {
   void _onLiveEvent(Map<String, dynamic> event) {
     final game = _game;
     if (game == null) {
-      if (event['type'] == 'snapshot') _startGame(event);
+      if (event['type'] == 'snapshot') {
+        _startGame(event);
+      } else if (event['type'] == 'error') {
+        _leaveBecause(event['message'] as String? ?? 'Could not join this world');
+      }
       return;
     }
     if (!game.isLoaded) {
@@ -244,6 +251,15 @@ class _IslandScreenState extends State<IslandScreen> {
       }
       _eventsBeforeLoad.clear();
     });
+  }
+
+  /// The server refused to let us in (e.g. someone is already playing as
+  /// this user): stop trying and go back to the welcome screen.
+  void _leaveBecause(String message) {
+    _live?.close();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    Navigator.of(context).pop();
   }
 
   void _send(Map<String, dynamic> message) {
