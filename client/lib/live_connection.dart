@@ -4,6 +4,17 @@ import 'dart:math';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+/// A random id for this browser tab, so the server can tell a reconnect of
+/// this tab from someone else playing as the same user.
+///
+/// Built from small random numbers on purpose: on the web, Dart numbers are
+/// JavaScript numbers and bit shifts wrap at 32 bits - `1 << 32` is 0 there,
+/// so `Random().nextInt(1 << 32)` throws.
+String newClientId() {
+  final random = Random();
+  return List.generate(4, (_) => random.nextInt(0x10000).toRadixString(16).padLeft(4, '0')).join();
+}
+
 /// The live link to one world on the backend. Delivers every event the
 /// server pushes to [onEvent], and reconnects by itself (with growing
 /// pauses) if the connection drops. The server sends a fresh `snapshot`

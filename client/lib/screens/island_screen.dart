@@ -36,7 +36,7 @@ class IslandScreen extends StatefulWidget {
 class _IslandScreenState extends State<IslandScreen> {
   /// Identifies this tab to the server - the same one is used when
   /// reconnecting, so it can take over its own old connection.
-  final String _clientId = '${Random().nextInt(1 << 32)}-${DateTime.now().microsecondsSinceEpoch}';
+  final String _clientId = newClientId();
   final IslandApi _api = IslandApi();
   IslandGame? _game;
   LiveConnection? _live;
