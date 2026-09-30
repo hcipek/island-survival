@@ -162,6 +162,21 @@ MovementRecord? _movementFromJson(Map<String, dynamic>? json) {
   );
 }
 
+ResourceNodeRecord _nodeFromJson(Map<String, dynamic> json) {
+  return ResourceNodeRecord(
+    id: json['id'] as int,
+    type: switch (json['type'] as String) {
+      'TREE' => ResourceNodeType.tree,
+      'BERRY_BUSH' => ResourceNodeType.berryBush,
+      'STICKS' => ResourceNodeType.sticks,
+      final other => throw Exception('Unknown resource node type: $other'),
+    },
+    x: (json['x'] as num).toDouble(),
+    y: (json['y'] as num).toDouble(),
+    regrowsIn: Duration(milliseconds: (json['regrowsInMs'] as num?)?.toInt() ?? 0),
+  );
+}
+
 Vector2 _pointFromJson(Map<String, dynamic> json) {
   return Vector2((json['x'] as num).toDouble(), (json['y'] as num).toDouble());
 }
@@ -713,6 +728,7 @@ class _IslandScreenState extends State<IslandScreen> {
       existingBuildings: _listFromJson(snapshot['buildings'], _buildingFromJson),
       existingBoats: _listFromJson(snapshot['boats'], _boatFromJson),
       existingPlayers: _listFromJson(snapshot['players'], _playerFromJson),
+      existingNodes: _listFromJson(snapshot['nodes'], _nodeFromJson),
       userId: widget.userId,
       username: widget.username,
       playerColor: widget.userColor,
@@ -776,6 +792,7 @@ class _IslandScreenState extends State<IslandScreen> {
         await game.syncBuildings(_listFromJson(event['buildings'], _buildingFromJson));
         await game.applyBoats(_listFromJson(event['boats'], _boatFromJson));
         await game.applyRemotePlayers(_listFromJson(event['players'], _playerFromJson));
+        await game.applyNodes(_listFromJson(event['nodes'], _nodeFromJson));
         _join(game);
       case 'state':
         _setIslandState(event['state']);

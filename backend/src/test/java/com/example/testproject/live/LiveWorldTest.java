@@ -90,6 +90,8 @@ class LiveWorldTest {
         assertThat(list(snapshot, "boats")).isEmpty();
         assertThat(list(snapshot, "players")).isEmpty();
         assertThat(number(map(snapshot, "state"), "wood")).isEqualTo(20);
+        assertThat(list(snapshot, "nodes")).isNotEmpty()
+                .allSatisfy(node -> assertThat(number(node, "regrowsInMs")).isZero());
     }
 
     @Test

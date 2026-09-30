@@ -6,6 +6,7 @@ import com.example.testproject.model.User;
 import com.example.testproject.repository.BoatRepository;
 import com.example.testproject.repository.PlayerPresenceRepository;
 import com.example.testproject.repository.UserRepository;
+import com.example.testproject.service.ResourceNodeService;
 import com.example.testproject.service.WorldService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,7 @@ public class LiveWorldService {
 
     private final WorldSessionRegistry registry;
     private final WorldService worldService;
+    private final ResourceNodeService resourceNodeService;
     private final PlayerPresenceRepository playerPresenceRepository;
     private final BoatRepository boatRepository;
     private final UserRepository userRepository;
@@ -46,12 +48,14 @@ public class LiveWorldService {
     public LiveWorldService(
             WorldSessionRegistry registry,
             WorldService worldService,
+            ResourceNodeService resourceNodeService,
             PlayerPresenceRepository playerPresenceRepository,
             BoatRepository boatRepository,
             UserRepository userRepository
     ) {
         this.registry = registry;
         this.worldService = worldService;
+        this.resourceNodeService = resourceNodeService;
         this.playerPresenceRepository = playerPresenceRepository;
         this.boatRepository = boatRepository;
         this.userRepository = userRepository;
@@ -186,8 +190,11 @@ public class LiveWorldService {
                 .map(this::playerView)
                 .toList();
 
+        resourceNodeService.ensureNodes(worldId);
         return LiveEvents.snapshot(
-                worldService.getState(worldId, excludingUserId), worldService.getBuildings(worldId), boats, players);
+                worldService.getState(worldId, excludingUserId), worldService.getBuildings(worldId), boats, players,
+                resourceNodeService.nodesView(worldId)
+        );
     }
 
     private Map<String, Object> playerView(PlayerPresence presence) {

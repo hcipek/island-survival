@@ -1,5 +1,6 @@
 package com.example.testproject.live;
 
+import com.example.testproject.model.ResourceNodeType;
 import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
 import com.example.testproject.model.dto.WorldStateDto;
@@ -19,9 +20,13 @@ public final class LiveEvents {
             WorldStateDto state,
             List<BuildingDto> buildings,
             List<Map<String, Object>> boats,
-            List<Map<String, Object>> players
+            List<Map<String, Object>> players,
+            List<Map<String, Object>> nodes
     ) {
-        return event("snapshot", "state", state, "buildings", buildings, "boats", boats, "players", players);
+        return event(
+                "snapshot", "state", state, "buildings", buildings, "boats", boats, "players", players,
+                "nodes", nodes
+        );
     }
 
     public static Map<String, Object> state(WorldStateDto state) {
@@ -83,6 +88,12 @@ public final class LiveEvents {
     /// progress, if any.
     public static Map<String, Object> boat(long id, long ownerId, double x, double y, Movement movement) {
         return fields("id", id, "ownerId", ownerId, "x", x, "y", y, "movement", movement(movement));
+    }
+
+    /// A tree, bush or pile of sticks. [regrowsInMs] is 0 when it can be
+    /// gathered from right now.
+    public static Map<String, Object> node(long id, ResourceNodeType type, double x, double y, long regrowsInMs) {
+        return fields("id", id, "type", type, "x", x, "y", y, "regrowsInMs", regrowsInMs);
     }
 
     private static Map<String, Object> movement(Movement movement) {
