@@ -2,9 +2,11 @@ package com.example.testproject.service;
 
 import com.example.testproject.model.Building;
 import com.example.testproject.model.BuildingType;
+import com.example.testproject.model.InventoryOnDeath;
 import com.example.testproject.model.ItemType;
 import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
+import com.example.testproject.model.dto.WorldSettingsDto;
 import com.example.testproject.model.req.BuildingRequest;
 import com.example.testproject.model.req.CreateBoatRequest;
 import com.example.testproject.model.req.CreateUserRequest;
@@ -86,6 +88,29 @@ class WorldServiceTest {
         assertStatus(HttpStatus.CONFLICT,
                 () -> worldService.createBoat(worldId, new CreateBoatRequest(port.id(), aliceId)));
         assertThat(wood(aliceId)).isEqualTo(10);
+    }
+
+    @Test
+    void aNewWorldGetsDefaultSettings() {
+        WorldSettingsDto settings = worldService.getWorld(worldId).settings();
+
+        assertThat(settings.animalAggression()).isTrue();
+        assertThat(settings.inventoryOnDeath()).isEqualTo(InventoryOnDeath.DROP);
+    }
+
+    @Test
+    void settingsCanBeChosenWhenCreatingAWorld() {
+        long peaceful = worldService.createWorld(new CreateWorldRequest("Peaceful", false, "KEEP")).id();
+
+        WorldSettingsDto settings = worldService.getWorld(peaceful).settings();
+        assertThat(settings.animalAggression()).isFalse();
+        assertThat(settings.inventoryOnDeath()).isEqualTo(InventoryOnDeath.KEEP);
+    }
+
+    @Test
+    void unknownSettingValuesAreRejected() {
+        assertStatus(HttpStatus.BAD_REQUEST,
+                () -> worldService.createWorld(new CreateWorldRequest("Odd", true, "BURN")));
     }
 
     @Test

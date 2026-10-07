@@ -15,9 +15,11 @@
 - **Quality:** one tab per user, coming back where you left off, the client
   split into smaller files
 
-## Next: hunting and health
+## In progress: hunting and health
 
-Waiting on the user's decisions. Suggested answers are in **bold**:
+The user accepted these suggestions, and added **world settings** for
+animal aggression and the bag on death (D22). Building it in steps: world
+settings ✅, then health and death, animals, and the spear with meat.
 
 1. **Animals:** **rabbits** (flee, one hit, meat) and **boars** (fight
    back, three hits, more meat, and what hurts you), mostly on the outer
@@ -29,10 +31,10 @@ Waiting on the user's decisions. Suggested answers are in **bold**:
 4. **Health:** **100, slowly regenerating while well fed.** You lose it from
    boar attacks and from starving, which would then replace starving only
    blocking building.
-5. **Death:** respawn on the home island. For items: **A** keep everything,
-   **B** drop the bag as a pile you can go back for (it disappears after
-   about 10 minutes) and keep the quick-access bar, **C** lose the bag's
-   contents. The suggestion is **B**.
+5. **Death:** respawn on the home island. What happens to the bag is now a
+   **world setting**: kept, dropped as a pile (it disappears after about
+   10 minutes, and only you can pick it up), or lost. The quick-access bar
+   is always kept.
 
 ## Later
 

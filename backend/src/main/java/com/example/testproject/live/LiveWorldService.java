@@ -342,7 +342,7 @@ public class LiveWorldService {
         return LiveEvents.snapshot(
                 worldService.getState(worldId, excludingUserId), worldService.getBuildings(worldId), boats, players,
                 resourceNodeService.nodesView(worldId), inventoryService.view(worldId, excludingUserId),
-                craftingService.recipesView(), you
+                craftingService.recipesView(), you, worldService.getWorld(worldId)
         );
     }
 

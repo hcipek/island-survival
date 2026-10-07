@@ -18,6 +18,20 @@ value lives in the code. For *why* things work this way, see
   somewhere else, and use the recenter button to follow your character
   again.
 
+## World settings
+
+Chosen in a dialog when a world is created. **They can't be changed
+afterwards.** Hover over a world on the welcome screen to see its
+settings.
+
+| Setting | Options | Default |
+|---|---|---|
+| Animal aggression | on: boars attack players / off: animals never attack | on |
+| When you die, your bag is... | **kept** / **dropped** in a pile where you died, to go back for before it disappears / **lost** | dropped |
+
+Your quick-access bar is always kept. (Animals and dying are being built;
+until then these settings are stored but don't change anything yet.)
+
 ## Getting around
 
 - **Walk:** tap a spot on the island you're on.

@@ -27,14 +27,53 @@ class UserData {
   }
 }
 
+/// What happens to a player's bag when they die - a world setting.
+enum InventoryOnDeath { keep, drop, lose }
+
+/// Options chosen when a world is created; they can't be changed later.
+class WorldSettings {
+  final bool animalAggression;
+  final InventoryOnDeath inventoryOnDeath;
+
+  const WorldSettings({this.animalAggression = true, this.inventoryOnDeath = InventoryOnDeath.drop});
+
+  factory WorldSettings.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const WorldSettings();
+    return WorldSettings(
+      animalAggression: json['animalAggression'] as bool? ?? true,
+      inventoryOnDeath: switch (json['inventoryOnDeath'] as String?) {
+        'KEEP' => InventoryOnDeath.keep,
+        'LOSE' => InventoryOnDeath.lose,
+        _ => InventoryOnDeath.drop,
+      },
+    );
+  }
+
+  /// e.g. "Aggressive animals, bag dropped on death".
+  String get summary {
+    final animals = animalAggression ? 'Aggressive animals' : 'Peaceful animals';
+    final bag = switch (inventoryOnDeath) {
+      InventoryOnDeath.keep => 'keep everything on death',
+      InventoryOnDeath.drop => 'bag dropped on death',
+      InventoryOnDeath.lose => 'bag lost on death',
+    };
+    return '$animals, $bag';
+  }
+}
+
 class WorldData {
   final int id;
   final String name;
+  final WorldSettings settings;
 
-  WorldData({required this.id, required this.name});
+  WorldData({required this.id, required this.name, this.settings = const WorldSettings()});
 
   factory WorldData.fromJson(Map<String, dynamic> json) {
-    return WorldData(id: json['id'] as int, name: json['name'] as String);
+    return WorldData(
+      id: json['id'] as int,
+      name: json['name'] as String,
+      settings: WorldSettings.fromJson(json['settings'] as Map<String, dynamic>?),
+    );
   }
 }
 
@@ -107,11 +146,15 @@ class IslandApi {
     return items.map((item) => WorldData.fromJson(item as Map<String, dynamic>)).toList();
   }
 
-  Future<WorldData> createWorld(String name) async {
+  Future<WorldData> createWorld(String name, WorldSettings settings) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/api/worlds'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'name': name}),
+      body: jsonEncode({
+        'name': name,
+        'animalAggression': settings.animalAggression,
+        'inventoryOnDeath': settings.inventoryOnDeath.name.toUpperCase(),
+      }),
     );
     if (response.statusCode != 200) {
       throw Exception(_errorMessage(response));

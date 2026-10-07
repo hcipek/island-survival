@@ -100,7 +100,9 @@ public class WorldService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Name cannot be empty");
         }
 
-        World world = worldRepository.save(new World(name));
+        boolean animalAggression = request.animalAggression() == null || request.animalAggression();
+        InventoryOnDeath inventoryOnDeath = parseInventoryOnDeath(request.inventoryOnDeath());
+        World world = worldRepository.save(new World(name, animalAggression, inventoryOnDeath));
 
         generateIslands(world.getId());
         resourceNodeService.ensureNodes(world.getId());
@@ -117,6 +119,21 @@ public class WorldService {
         inventoryService.deleteAllIn(worldId);
         resourceNodeService.deleteAllIn(worldId);
         worldRepository.deleteById(worldId);
+    }
+
+    public WorldDto getWorld(long worldId) {
+        return WorldDto.from(getWorldOrThrow(worldId));
+    }
+
+    private static InventoryOnDeath parseInventoryOnDeath(String value) {
+        if (value == null) {
+            return InventoryOnDeath.DROP;
+        }
+        try {
+            return InventoryOnDeath.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "inventoryOnDeath must be KEEP, DROP or LOSE");
+        }
     }
 
     public Instant lastActiveAt(long worldId) {

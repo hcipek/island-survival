@@ -113,6 +113,9 @@ class LiveWorldTest {
         assertThat(number(map(snapshot, "state"), "hunger")).isEqualTo(100);
         assertThat(list(map(snapshot, "inventory"), "slots")).isEmpty(); // everyone starts empty-handed
         assertThat(list(snapshot, "recipes")).extracting(r -> r.get("id")).containsExactly("AXE", "HAMMER");
+        Map<String, Object> settings = map(map(snapshot, "world"), "settings");
+        assertThat(settings.get("animalAggression")).isEqualTo(true);
+        assertThat(settings.get("inventoryOnDeath")).isEqualTo("DROP");
         assertThat(list(snapshot, "nodes")).isNotEmpty()
                 .allSatisfy(node -> assertThat(number(node, "regrowsInMs")).isZero());
     }

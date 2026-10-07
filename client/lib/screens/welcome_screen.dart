@@ -102,9 +102,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   Future<void> _createWorld() async {
     final name = _newWorldController.text.trim();
     if (name.isEmpty) return;
+    final settings = await showDialog<WorldSettings>(
+      context: context,
+      builder: (_) => _WorldSettingsDialog(worldName: name),
+    );
+    if (settings == null) return; // cancelled
     setState(() => _creatingWorld = true);
     try {
-      final world = await _api.createWorld(name);
+      final world = await _api.createWorld(name, settings);
       _newWorldController.clear();
       setState(() {
         _worlds = [...?_worlds, world];
@@ -220,6 +225,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                         items: _worlds!,
                         selected: _selectedWorld,
                         labelOf: (w) => w.name,
+                        detailOf: (w) => w.settings.summary,
                         idOf: (w) => w.id,
                         onSelect: (w) => setState(() => _selectedWorld = w),
                         onDelete: _confirmDeleteWorld,
@@ -257,6 +263,9 @@ class _PickerSection<T> extends StatelessWidget {
 
   /// Why an item can't be picked right now, if it can't - shown on its chip.
   final String? Function(T)? unavailableReasonOf;
+
+  /// Extra information shown when hovering over an item.
+  final String Function(T)? detailOf;
   final ValueChanged<T> onSelect;
   final void Function(T)? onDelete;
   final Color Function(T)? colorOf;
@@ -272,6 +281,7 @@ class _PickerSection<T> extends StatelessWidget {
     required this.labelOf,
     required this.idOf,
     this.unavailableReasonOf,
+    this.detailOf,
     required this.onSelect,
     this.onDelete,
     this.colorOf,
@@ -311,7 +321,9 @@ class _PickerSection<T> extends StatelessWidget {
                     label: Text(unavailable == null ? labelOf(item) : '${labelOf(item)} ($unavailable)'),
                     selected: isSelected,
                     isEnabled: unavailable == null,
-                    tooltip: unavailable == null ? null : '${labelOf(item)} is $unavailable right now',
+                    tooltip: unavailable != null
+                        ? '${labelOf(item)} is $unavailable right now'
+                        : detailOf?.call(item),
                     onPressed: () => onSelect(item),
                     onDeleted: onDelete != null ? () => onDelete!(item) : null,
                     deleteIcon: onDelete != null
@@ -350,6 +362,69 @@ class _PickerSection<T> extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Asked when creating a world: its settings, which can't be changed later.
+class _WorldSettingsDialog extends StatefulWidget {
+  final String worldName;
+
+  const _WorldSettingsDialog({required this.worldName});
+
+  @override
+  State<_WorldSettingsDialog> createState() => _WorldSettingsDialogState();
+}
+
+class _WorldSettingsDialogState extends State<_WorldSettingsDialog> {
+  WorldSettings _settings = const WorldSettings();
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('New world: ${widget.worldName}'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Animal aggression'),
+            subtitle: Text(_settings.animalAggression ? 'Boars attack players' : 'Animals never attack'),
+            value: _settings.animalAggression,
+            onChanged: (value) => setState(() => _settings =
+                WorldSettings(animalAggression: value, inventoryOnDeath: _settings.inventoryOnDeath)),
+          ),
+          const SizedBox(height: 12),
+          const Text('When you die, your bag is...'),
+          const SizedBox(height: 8),
+          SegmentedButton<InventoryOnDeath>(
+            segments: const [
+              ButtonSegment(value: InventoryOnDeath.keep, label: Text('Kept')),
+              ButtonSegment(value: InventoryOnDeath.drop, label: Text('Dropped')),
+              ButtonSegment(value: InventoryOnDeath.lose, label: Text('Lost')),
+            ],
+            selected: {_settings.inventoryOnDeath},
+            onSelectionChanged: (choice) => setState(() => _settings =
+                WorldSettings(animalAggression: _settings.animalAggression, inventoryOnDeath: choice.single)),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${switch (_settings.inventoryOnDeath) {
+              InventoryOnDeath.keep => 'Nothing is lost.',
+              InventoryOnDeath.drop => 'Left in a pile where you died - go back for it before it disappears.',
+              InventoryOnDeath.lose => 'Gone for good.',
+            }} Your quick-access bar is always kept.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          Text('These can\'t be changed later.', style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, _settings), child: const Text('Create world')),
+      ],
     );
   }
 }

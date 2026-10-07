@@ -1,9 +1,11 @@
 package com.example.testproject.model;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import org.hibernate.annotations.ColumnDefault;
 
 import java.time.Instant;
 
@@ -25,11 +27,24 @@ public class World {
     /// have dropped in between can be added. Null if never.
     private Instant lastActiveAt;
 
+    /// World settings, chosen when the world is created (see
+    /// [com.example.testproject.model.dto.WorldSettingsDto]). The defaults
+    /// apply to worlds made before settings existed.
+    @ColumnDefault("true")
+    private boolean animalAggression = true;
+
+    // The setting's name as plain text - see D18 in docs/decisions.md.
+    @ColumnDefault("'DROP'")
+    @Column(length = 16)
+    private String inventoryOnDeath = InventoryOnDeath.DROP.name();
+
     protected World() {
     }
 
-    public World(String name) {
+    public World(String name, boolean animalAggression, InventoryOnDeath inventoryOnDeath) {
         this.name = name;
+        this.animalAggression = animalAggression;
+        this.inventoryOnDeath = inventoryOnDeath.name();
     }
 
     public Long getId() {
@@ -42,6 +57,14 @@ public class World {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public boolean isAnimalAggression() {
+        return animalAggression;
+    }
+
+    public InventoryOnDeath getInventoryOnDeath() {
+        return InventoryOnDeath.valueOf(inventoryOnDeath);
     }
 
     public Instant getLastActiveAt() {

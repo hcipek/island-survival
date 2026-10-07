@@ -256,3 +256,20 @@ lumberjack. There's no separate sticks item. Recipes use wood.
 
 **Why:** it's the user's rule: different sources can give the same
 resource, rather than each source having its own item.
+
+### D22. World settings, chosen once when a world is created
+*2026-10-07*
+
+A world has settings picked when it's created: **animal aggression** (on or
+off) and **what happens to your bag when you die** (kept, dropped as a
+pile, or lost). Existing worlds get the defaults: aggression on, bag
+dropped.
+
+**Why:** it's the user's idea. Different worlds can play differently, and
+more options can be added the same way later.
+**Fixed after creation:** changing them mid-game would be odd (e.g.
+switching to "kept" right after dying), and worlds have no owner yet who
+could be allowed to change them. With login, "the creator can edit
+settings" can be added.
+**Keep the list short:** each setting multiplies the cases to test, so new
+settings are added only when a feature really needs one.

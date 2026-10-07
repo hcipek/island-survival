@@ -16,8 +16,8 @@ Base URL: `http://<host>:8080`. Errors come back with a 4xx status and
 |---|---|---|
 | `GET /api/users` | | `[{id, name, color, playing}]`: `playing` means someone is in the game as that user |
 | `POST /api/users` | `{name}` | the new user |
-| `GET /api/worlds` | | `[{id, name, createdAt}]` |
-| `POST /api/worlds` | `{name}` | the new world (its islands and resource spots are made right away) |
+| `GET /api/worlds` | | `[{id, name, createdAt, settings: {animalAggression, inventoryOnDeath}}]` |
+| `POST /api/worlds` | `{name, animalAggression?, inventoryOnDeath?}` | the new world (its islands and resource spots are made right away). `inventoryOnDeath` is `KEEP`, `DROP` or `LOSE`; left out, the defaults are `true` and `DROP` |
 | `DELETE /api/worlds/{worldId}` | | deletes the world and everything in it |
 | `GET /api/worlds/{worldId}/islands` | | `[{id, centerX, centerY, radius, isHome}]` (never changes) |
 | `POST /api/worlds/{worldId}/buildings` | `{type, x, y, ownerId}` | the building. Needs a held hammer, the right ground and the cost |
@@ -48,6 +48,7 @@ reconnect.
 | `inventory` | your inventory (see `inventory` below) |
 | `recipes` | `[{id, output, ingredients: [{item, quantity}]}]` |
 | `you` | where you were when you last left: `{x, y, boatId}`, or `null` the first time |
+| `world` | `{id, name, createdAt, settings}`, as in `GET /api/worlds` |
 | `buildings` | `[building]` (see below) |
 | `boats` | `[{id, ownerId, x, y, movement}]` |
 | `players` | other players in the world: `[{userId, username, color, x, y, boatId, movement}]` |

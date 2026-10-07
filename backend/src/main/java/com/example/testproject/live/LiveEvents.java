@@ -4,6 +4,7 @@ import com.example.testproject.model.ResourceNodeType;
 import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
 import com.example.testproject.model.dto.PlayerStateDto;
+import com.example.testproject.model.dto.WorldDto;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,11 +25,12 @@ public final class LiveEvents {
             List<Map<String, Object>> nodes,
             Map<String, Object> inventory,
             List<Map<String, Object>> recipes,
-            Map<String, Object> you
+            Map<String, Object> you,
+            WorldDto world
     ) {
         return event(
                 "snapshot", "state", state, "buildings", buildings, "boats", boats, "players", players,
-                "nodes", nodes, "inventory", inventory, "recipes", recipes, "you", you
+                "nodes", nodes, "inventory", inventory, "recipes", recipes, "you", you, "world", world
         );
     }
 
