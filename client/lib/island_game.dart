@@ -276,7 +276,12 @@ class IslandGame extends FlameGame {
       onNotice?.call('Sail over to that island first');
       return;
     }
-    if (isStarving && node.type != ResourceNodeType.berryBush) {
+    if (node is ItemPileComponent && !isOwnedByMe(node.ownerId ?? -1)) {
+      onNotice?.call("Those are someone else's things");
+      return;
+    }
+    // Berries and your own dropped things are fine while starving.
+    if (isStarving && node.type != ResourceNodeType.berryBush && node.type != ResourceNodeType.itemPile) {
       onNotice?.call("You're starving - pick some berries and eat first");
       return;
     }
@@ -379,6 +384,8 @@ class IslandGame extends FlameGame {
         BerryBushComponent(id: record.id, position: position, islandRadius: islandRadius),
       ResourceNodeType.sticks => SticksComponent(id: record.id, position: position, islandRadius: islandRadius),
       ResourceNodeType.stones => StonesComponent(id: record.id, position: position, islandRadius: islandRadius),
+      ResourceNodeType.itemPile =>
+        ItemPileComponent(id: record.id, position: position, islandRadius: islandRadius, ownerId: record.ownerId),
     };
     node.setRegrowsIn(record.regrowsIn);
     resourceNodes[record.id] = node;
@@ -1021,6 +1028,26 @@ class IslandGame extends FlameGame {
   }
 
   /// Another player stepped off their boat onto an island.
+  /// This player died and woke up at [position] on the home island.
+  void respawnLocalPlayer(Vector2 position) {
+    _stopGathering();
+    player.boardedBoat?.isSelected = false;
+    player
+      ..boardedBoat = null
+      ..stop()
+      ..position = position;
+    currentPlayerIsland = _islandAt(position) ?? homeIsland;
+    _isFreeLooking = false;
+  }
+
+  /// Another player died and came back at [position].
+  void respawnRemotePlayer(int userId, Vector2 position) {
+    _remotePlayers[userId]
+      ?..boardedBoat = null
+      ..stop()
+      ..position = position;
+  }
+
   void landRemotePlayer(int userId, Vector2 position) {
     final remote = _remotePlayers[userId];
     if (remote == null) return;

@@ -44,7 +44,7 @@ reconnect.
 
 | Field | Contents |
 |---|---|
-| `state` | your vitals: `{hunger, hungerDrainPerSecond}` (see `state` below) |
+| `state` | your vitals: `{hunger, hungerDrainPerSecond, health, healthChangePerSecond}` (see `state` below) |
 | `inventory` | your inventory (see `inventory` below) |
 | `recipes` | `[{id, output, ingredients: [{item, quantity}]}]` |
 | `you` | where you were when you last left: `{x, y, boatId}`, or `null` the first time |
@@ -52,7 +52,7 @@ reconnect.
 | `buildings` | `[building]` (see below) |
 | `boats` | `[{id, ownerId, x, y, movement}]` |
 | `players` | other players in the world: `[{userId, username, color, x, y, boatId, movement}]` |
-| `nodes` | resource spots: `[{id, type, x, y, regrowsInMs}]` (`regrowsInMs` is 0 when usable now) |
+| `nodes` | resource spots: `[{id, type, x, y, regrowsInMs, ownerId, expiresInMs}]`. `regrowsInMs` is 0 when usable now. `ownerId` and `expiresInMs` are only set for an `ITEM_PILE` (a dead player's dropped bag): whose it is, and when it disappears |
 
 A **movement** is `{from, path: [points], elapsedMs}`, or `null`. Start at
 `from`, visit each point at the mover's fixed speed, and skip ahead by
@@ -79,7 +79,8 @@ the stored wood up between updates.
 | `boatAdded` | `boat` | built (by REST) |
 | `nodeDepleted` | `nodeId, regrowsInMs` | a bush was picked or a tree chopped |
 | `nodeAdded` | `node` | sticks or stones dropped |
-| `nodeRemoved` | `nodeId` | sticks or stones were picked up |
+| `nodeRemoved` | `nodeId` | sticks, stones or a whole item pile were picked up, or a pile expired |
+| `playerRespawned` | `userId, position` | someone died and came back on the home island (sent to them too) |
 
 The player who caused a `playerJoined`, `playerMoved`, `playerBoarded`,
 `boatMoved` or `playerLanded` event doesn't get it back. All the other
@@ -89,7 +90,8 @@ events go to everyone in the world, including whoever caused them.
 
 | Type | Fields | When |
 |---|---|---|
-| `state` | `state: {hunger, hungerDrainPerSecond}` | on joining, after eating. The client counts hunger down between updates |
+| `state` | `state: {hunger, hungerDrainPerSecond, health, healthChangePerSecond}` | on joining, after eating, and every 2 s while in the world. The client counts both between updates |
+| `youDied` | `cause, bag, pileId` | you died. `bag` is `KEPT`, `DROPPED` (into item pile `pileId`), `LOST` or `EMPTY` |
 | `inventory` | `inventory: {slots: [{slot, item, quantity}], selectedSlot, hotbarSize, bagSize}` | after anything changes it |
 | `error` | `message` | something you sent was refused |
 
@@ -102,7 +104,7 @@ events go to everyone in the world, including whoever caused them.
 | `board` | `boatId` | step aboard your own boat |
 | `sail` | `boatId, from, path` | sail the boat you're aboard |
 | `land` | `boatId, position` | step off onto an island |
-| `gather` | `nodeId` | pick berries, sticks or stones, or chop a tree (needs a held axe). You must be standing next to it |
+| `gather` | `nodeId` | pick berries, sticks or stones, chop a tree (needs a held axe), or pick up your own item pile. You must be standing next to it |
 | `select` | `slot` | hold what's in quick-access slot 0–9 |
 | `moveItem` | `fromSlot, toSlot` | move, stack or swap in the inventory (slots 0–49) |
 | `discard` | `slot` | throw away a slot |

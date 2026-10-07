@@ -15,7 +15,7 @@ flowchart LR
         Socket["WorldSocketHandler<br/>/ws/worlds/{id}"]
         Services["Services<br/>the game rules"]
         Registry["WorldSessionRegistry<br/>who's connected"]
-        Ticker["WorldTicker<br/>every 20 s"]
+        Ticker["WorldTicker<br/>every 2 s and 20 s"]
         DB[("H2 file<br/>backend/data")]
     end
     UI --> Api --> Rest --> Services
@@ -67,9 +67,12 @@ The full message list is in [protocol.md](protocol.md).
 | `config` | CORS and WebSocket setup, scheduling, and `LegacySchemaCleanup` (see D13) |
 
 Things worth knowing:
-- **Nothing ticks per player.** Hunger, lumberjack storage and regrowth are
-  calculated from timestamps when read (D12). Only `WorldTicker` runs on a
-  schedule, and tests switch it off (`game.ticks.enabled: false`).
+- **Nothing ticks per player.** Hunger, health, lumberjack storage and
+  regrowth are calculated from timestamps when read (D12). Only
+  `WorldTicker` runs on a schedule, for worlds someone is playing in:
+  every 2 s it brings players' vitals up to date (and notices deaths), and
+  every 20 s it drops loose items and removes expired item piles. Tests
+  switch it off (`game.ticks.enabled: false`).
 - **Errors** are thrown as `ResponseStatusException` with a readable
   reason. REST returns it as `{"message": ...}`, and the socket sends it as
   an `error` event to that player only.

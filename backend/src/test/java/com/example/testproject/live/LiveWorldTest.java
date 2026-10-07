@@ -11,6 +11,7 @@ import com.example.testproject.model.req.CreateWorldRequest;
 import com.example.testproject.repository.BoatRepository;
 import com.example.testproject.repository.BuildingRepository;
 import com.example.testproject.repository.PlayerVitalsRepository;
+import com.example.testproject.repository.ResourceNodeRepository;
 import com.example.testproject.repository.WorldRepository;
 import com.example.testproject.service.InventoryService;
 import com.example.testproject.service.UserService;
@@ -66,6 +67,12 @@ class LiveWorldTest {
 
     @Autowired
     private WorldTicker worldTicker;
+
+    @Autowired
+    private LiveWorldService liveWorldService;
+
+    @Autowired
+    private ResourceNodeRepository resourceNodeRepository;
 
     @Autowired
     private WorldRepository worldRepository;
@@ -439,6 +446,138 @@ class LiveWorldTest {
     }
 
     @Test
+    void starvingToDeathBringsYouBackHomeForEveryoneToSee() throws Exception {
+        TestClient bob = connectAndJoin(bobId);
+        TestClient alice = joinAt(worldId, aliceId, point(100, 0));
+        bob.expect("playerJoined");
+        aboutToStarve(worldId, aliceId);
+
+        liveWorldService.checkVitals(worldId, aliceId);
+
+        Map<String, Object> respawned = bob.expect("playerRespawned");
+        assertThat(number(respawned, "userId")).isEqualTo(aliceId);
+        assertThat(number(map(respawned, "position"), "x")).isZero();
+        alice.expect("playerRespawned");
+        Map<String, Object> died = alice.expect("youDied");
+        assertThat(died.get("cause")).isEqualTo("You starved");
+        assertThat(died.get("bag")).isEqualTo("EMPTY");
+        Map<String, Object> state = map(alice.expect("state"), "state");
+        assertThat(number(state, "health")).isEqualTo(100);
+        assertThat(number(state, "hunger")).isEqualTo(50);
+    }
+
+    @Test
+    void inADropWorldYourBagIsLeftInAPileOnlyYouCanPickUp() throws Exception {
+        fillQuickAccessBarWithAxes(worldId, aliceId);
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 30); // into the bag
+        TestClient bob = connectAndJoin(bobId);
+        TestClient alice = joinAt(worldId, aliceId, point(100, 0));
+        bob.expect("playerJoined");
+        aboutToStarve(worldId, aliceId);
+
+        liveWorldService.checkVitals(worldId, aliceId);
+
+        Map<String, Object> pile = map(bob.expect("nodeAdded"), "node");
+        assertThat(pile.get("type")).isEqualTo("ITEM_PILE");
+        assertThat(number(pile, "ownerId")).isEqualTo(aliceId);
+        assertThat(number(pile, "x")).isEqualTo(100);
+        assertThat(number(pile, "expiresInMs")).isPositive();
+        alice.expect("nodeAdded");
+        alice.expect("playerRespawned");
+        assertThat(alice.expect("youDied").get("bag")).isEqualTo("DROPPED");
+        alice.expect("state");
+        assertThat(list(map(alice.expect("inventory"), "inventory"), "slots")).hasSize(10); // the axes stay
+        bob.expect("playerRespawned");
+
+        // Bob can't take it...
+        bob.send(Map.of("type", "move", "from", point(0, 0), "path", List.of(point(100, 0))));
+        bob.expectNothing();
+        bob.send(Map.of("type", "gather", "nodeId", number(pile, "id")));
+        assertThat(bob.expect("error").get("message")).isEqualTo("Those are someone else's things");
+
+        // ...but Alice can go back for it.
+        alice.expect("playerMoved"); // (Bob walking over)
+        alice.send(Map.of("type", "move", "from", point(0, 0), "path", List.of(point(100, 0))));
+        alice.send(Map.of("type", "gather", "nodeId", number(pile, "id")));
+        assertThat(number(alice.expect("nodeRemoved"), "nodeId")).isEqualTo(number(pile, "id"));
+        assertThat(number(slotWith("WOOD", alice.expect("inventory")), "quantity")).isEqualTo(30);
+    }
+
+    @Test
+    void dyingAtSeaLeavesThePileOnTheNearestShore() throws Exception {
+        BoatDto boat = boatForAlice(); // just off the home island's east coast
+        inventoryService.add(worldId, aliceId, ItemType.STONE, 50 * 10); // fill the bar...
+        inventoryService.add(worldId, aliceId, ItemType.BERRY, 5);       // ...so these go in the bag
+        TestClient alice = connectAndJoin(aliceId);
+        alice.send(Map.of("type", "board", "boatId", boat.id()));
+        alice.expectNothing();
+        aboutToStarve(worldId, aliceId);
+
+        liveWorldService.checkVitals(worldId, aliceId);
+
+        // The home island has radius 600 and its sand starts at 552.
+        Map<String, Object> pile = map(alice.expect("nodeAdded"), "node");
+        assertThat(number(pile, "x")).isCloseTo(552, within(0.5));
+        assertThat(number(pile, "y")).isCloseTo(0, within(0.5));
+    }
+
+    @Test
+    void inAKeepWorldNothingIsLost() throws Exception {
+        long keepWorld = worldService.createWorld(new CreateWorldRequest("Kind", true, "KEEP")).id();
+        fillQuickAccessBarWithAxes(keepWorld, aliceId);
+        inventoryService.add(keepWorld, aliceId, ItemType.WOOD, 30);
+        TestClient alice = joinAt(keepWorld, aliceId, point(100, 0));
+        aboutToStarve(keepWorld, aliceId);
+
+        liveWorldService.checkVitals(keepWorld, aliceId);
+
+        alice.expect("playerRespawned");
+        assertThat(alice.expect("youDied").get("bag")).isEqualTo("KEPT");
+        alice.expect("state");
+        assertThat(number(slotWith("WOOD", alice.expect("inventory")), "quantity")).isEqualTo(30);
+    }
+
+    @Test
+    void inALoseWorldTheBagIsGoneButTheQuickAccessBarStays() throws Exception {
+        long harshWorld = worldService.createWorld(new CreateWorldRequest("Harsh", true, "LOSE")).id();
+        fillQuickAccessBarWithAxes(harshWorld, aliceId);
+        inventoryService.add(harshWorld, aliceId, ItemType.WOOD, 30);
+        TestClient alice = joinAt(harshWorld, aliceId, point(100, 0));
+        aboutToStarve(harshWorld, aliceId);
+
+        liveWorldService.checkVitals(harshWorld, aliceId);
+
+        alice.expect("playerRespawned");
+        assertThat(alice.expect("youDied").get("bag")).isEqualTo("LOST");
+        alice.expect("state");
+        assertThat(list(map(alice.expect("inventory"), "inventory"), "slots"))
+                .hasSize(10)
+                .allSatisfy(slot -> assertThat(slot.get("item")).isEqualTo("AXE"));
+    }
+
+    @Test
+    void pilesDisappearAfterAWhile() throws Exception {
+        fillQuickAccessBarWithAxes(worldId, aliceId);
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 30);
+        TestClient alice = joinAt(worldId, aliceId, point(100, 0));
+        aboutToStarve(worldId, aliceId);
+        liveWorldService.checkVitals(worldId, aliceId);
+        long pileId = (long) number(map(alice.expect("nodeAdded"), "node"), "id");
+
+        var pile = resourceNodeRepository.findById(pileId).orElseThrow();
+        pile.setExpiresAt(java.time.Instant.now().minusSeconds(1));
+        resourceNodeRepository.save(pile);
+        worldTicker.tickActiveWorlds(0);
+
+        Map<String, Object> removed;
+        do {
+            removed = alice.expectAny();
+        } while (!"nodeRemoved".equals(removed.get("type")));
+        assertThat(number(removed, "nodeId")).isEqualTo(pileId);
+        assertThat(resourceNodeRepository.findById(pileId)).isEmpty();
+    }
+
+    @Test
     void onlyOneTabCanPlayAsAUserAtATime() throws Exception {
         TestClient alice = connectAs(worldId, aliceId, "tab-1");
         alice.expect("snapshot");
@@ -508,6 +647,30 @@ class LiveWorldTest {
 
     private static List<Map<String, Object>> sticksIn(Map<String, Object> snapshot) {
         return list(snapshot, "nodes").stream().filter(n -> "STICKS".equals(n.get("type"))).toList();
+    }
+
+    /// Connects and joins [userId] in [worldId], standing at [position].
+    private TestClient joinAt(long worldId, long userId, Map<String, Object> position) throws Exception {
+        TestClient client = connectTo(worldId, userId);
+        client.expect("snapshot");
+        client.send(Map.of("type", "join", "position", position));
+        client.expect("state");
+        return client;
+    }
+
+    /// One more vitals check and they've starved.
+    private void aboutToStarve(long worldId, long userId) {
+        var vitals = playerVitalsRepository.findByWorldIdAndUserId(worldId, userId).orElseThrow();
+        vitals.setHunger(0);
+        vitals.setHealth(0.5);
+        vitals.setHungerSettledAt(java.time.Instant.now().minusSeconds(10));
+        playerVitalsRepository.save(vitals);
+    }
+
+    /// Takes up all ten quick-access slots, so anything added next goes in
+    /// the bag.
+    private void fillQuickAccessBarWithAxes(long worldId, long userId) {
+        inventoryService.add(worldId, userId, ItemType.AXE, 10);
     }
 
     private void awaitClosed(TestClient client) throws InterruptedException {
@@ -615,6 +778,13 @@ class LiveWorldTest {
             Map<String, Object> message = received.poll(5, TimeUnit.SECONDS);
             assertThat(message).as("expected a %s message", type).isNotNull();
             assertThat(message.get("type")).as("message: %s", message).isEqualTo(type);
+            return message;
+        }
+
+        /// The next message, whatever it is.
+        Map<String, Object> expectAny() throws InterruptedException {
+            Map<String, Object> message = received.poll(5, TimeUnit.SECONDS);
+            assertThat(message).as("expected a message").isNotNull();
             return message;
         }
 

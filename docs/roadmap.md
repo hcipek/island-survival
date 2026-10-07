@@ -19,7 +19,8 @@
 
 The user accepted these suggestions, and added **world settings** for
 animal aggression and the bag on death (D22). Building it in steps: world
-settings ✅, then health and death, animals, and the spear with meat.
+settings ✅, health and death ✅ (D23), then animals, and the spear with
+meat.
 
 1. **Animals:** **rabbits** (flee, one hit, meat) and **boars** (fight
    back, three hits, more meat, and what hurts you), mostly on the outer

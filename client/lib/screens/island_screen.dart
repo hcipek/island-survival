@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
@@ -265,6 +264,25 @@ class _IslandScreenState extends State<IslandScreen> {
     Navigator.of(context).pop();
   }
 
+  void _showDeath(String cause, String bag) {
+    if (!mounted) return;
+    final bagText = switch (bag) {
+      'KEPT' => 'You kept everything.',
+      'DROPPED' => 'Your bag was left where you died - go back for it before it disappears (about 10 minutes).',
+      'LOST' => 'The things in your bag are gone.',
+      _ => 'Your bag was empty.',
+    };
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.heart_broken, color: Colors.redAccent, size: 40),
+        title: Text(cause),
+        content: Text('You woke up on the home island.\n\n$bagText Your quick-access bar is always kept.'),
+        actions: [FilledButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('OK'))],
+      ),
+    );
+  }
+
   void _send(Map<String, dynamic> message) {
     _live?.send(message);
   }
@@ -317,6 +335,15 @@ class _IslandScreenState extends State<IslandScreen> {
           event['boatId'] as int,
           movementFromJson(event['movement'] as Map<String, dynamic>)!,
         );
+      case 'playerRespawned':
+        final position = pointFromJson(event['position'] as Map<String, dynamic>);
+        if (event['userId'] == widget.userId) {
+          game.respawnLocalPlayer(position);
+        } else {
+          game.respawnRemotePlayer(event['userId'] as int, position);
+        }
+      case 'youDied':
+        _showDeath(event['cause'] as String? ?? 'You died', event['bag'] as String? ?? 'EMPTY');
       case 'playerLanded':
         game.landRemotePlayer(
           event['userId'] as int,
@@ -359,10 +386,7 @@ class _IslandScreenState extends State<IslandScreen> {
     final island = _island;
     if (island == null) return null;
     final seconds = DateTime.now().difference(_islandReceivedAt).inMilliseconds / 1000;
-    return PlayerState(
-      hunger: max(0, island.hunger - island.hungerDrainPerSecond * seconds),
-      hungerDrainPerSecond: island.hungerDrainPerSecond,
-    );
+    return island.after(seconds);
   }
 
   void _showBuildMenu() {
@@ -662,7 +686,7 @@ class _IslandScreenState extends State<IslandScreen> {
                   Positioned(
                     top: 16,
                     left: 16,
-                    child: HungerHud(island: _currentIsland!),
+                    child: VitalsHud(island: _currentIsland!),
                   ),
                 if (!_connected)
                   const Positioned(

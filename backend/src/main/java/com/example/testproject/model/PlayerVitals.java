@@ -10,11 +10,11 @@ import org.hibernate.annotations.ColumnDefault;
 
 import java.time.Instant;
 
-/// How a player is doing in one world - for now, just how hungry they are.
-/// (What they carry is in their inventory; see [InventorySlot].)
+/// How a player is doing in one world: hunger and health. (What they carry
+/// is in their inventory; see [InventorySlot].)
 ///
-/// Nothing ticks on a timer: whenever it's read, the hunger lost since
-/// [hungerSettledAt] is taken off first.
+/// Nothing ticks per player: whenever it's read, what changed since
+/// [hungerSettledAt] is worked out first.
 @Entity
 // The table keeps its old name, so existing players' hunger carries over.
 @Table(name = "player_resources", uniqueConstraints = @UniqueConstraint(columnNames = {"worldId", "userId"}))
@@ -35,6 +35,10 @@ public class PlayerVitals {
     /// When hunger was last brought up to date, while the player is in the
     /// world - or null while they're away, since hunger doesn't drop then.
     private Instant hungerSettledAt;
+
+    /// 100 is full health, 0 is dead.
+    @ColumnDefault("100")
+    private double health = 100;
 
     protected PlayerVitals() {
     }
@@ -62,6 +66,14 @@ public class PlayerVitals {
 
     public void setHunger(double hunger) {
         this.hunger = hunger;
+    }
+
+    public double getHealth() {
+        return health;
+    }
+
+    public void setHealth(double health) {
+        this.health = health;
     }
 
     public Instant getHungerSettledAt() {

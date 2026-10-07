@@ -3,6 +3,8 @@ package com.example.testproject.live;
 import com.example.testproject.model.Boat;
 import com.example.testproject.model.ItemType;
 import com.example.testproject.model.PlayerPresence;
+import com.example.testproject.model.PlayerVitals;
+import com.example.testproject.model.ResourceNode;
 import com.example.testproject.model.User;
 import com.example.testproject.repository.BoatRepository;
 import com.example.testproject.repository.PlayerPresenceRepository;
@@ -318,6 +320,77 @@ public class LiveWorldService {
                     result.node().getId(), ResourceNodeService.regrowsInMillis(result.node(), Instant.now())));
         }
         inventoryService.sendTo(worldId, userId);
+    }
+
+    /// Brings a player's hunger and health up to date, tells them, and
+    /// handles their death if health has run out. Run regularly for everyone
+    /// in a world (see [WorldTicker]).
+    public void checkVitals(long worldId, long userId) {
+        PlayerVitals vitals = playerVitalsService.current(worldId, userId);
+        if (vitals.getHealth() <= 0) {
+            die(worldId, userId, "You starved");
+        } else {
+            playerVitalsService.sendStateTo(vitals);
+        }
+    }
+
+    /// The player died: what happens to their bag depends on the world's
+    /// settings, and they come back on the home island with full health.
+    public synchronized void die(long worldId, long userId, String cause) {
+        Point diedAt = currentPositionOf(worldId, userId);
+        boolean atSea = presenceOf(worldId, userId).getBoatId() != null;
+
+        String bag;
+        Long pileId = null;
+        switch (worldService.getWorld(worldId).settings().inventoryOnDeath()) {
+            case KEEP -> bag = "KEPT";
+            case LOSE -> bag = inventoryService.takeBag(worldId, userId).isEmpty() ? "EMPTY" : "LOST";
+            case DROP -> {
+                // Somewhere they can walk back to, even if they died at sea.
+                Point pileAt = atSea ? worldService.shoreNear(worldId, diedAt.x(), diedAt.y()) : diedAt;
+                ResourceNode pile = resourceNodeService.leavePile(
+                        worldId, userId, pileAt.x(), pileAt.y(), inventoryService.takeBag(worldId, userId));
+                bag = pile == null ? "EMPTY" : "DROPPED";
+                if (pile != null) {
+                    pileId = pile.getId();
+                    registry.broadcast(worldId, LiveEvents.nodeAdded(ResourceNodeService.view(pile)));
+                }
+            }
+            default -> throw new IllegalStateException();
+        }
+
+        Point spawn = worldService.homeSpawn(worldId);
+        PlayerPresence presence = presenceOf(worldId, userId);
+        presence.setX(spawn.x());
+        presence.setY(spawn.y());
+        presence.setBoatId(null);
+        playerPresenceRepository.save(presence);
+        playerMovements.remove(movementKey(worldId, userId));
+        PlayerVitals vitals = playerVitalsService.respawn(worldId, userId);
+
+        registry.broadcast(worldId, LiveEvents.playerRespawned(userId, spawn));
+        registry.sendToUser(worldId, userId, LiveEvents.youDied(cause, bag, pileId));
+        playerVitalsService.sendStateTo(vitals);
+        inventoryService.sendTo(worldId, userId);
+    }
+
+    /// Where a player is right now: along the walk they're on, or wherever
+    /// their boat has got to if they're aboard one.
+    Point currentPositionOf(long worldId, long userId) {
+        Instant now = Instant.now();
+        PlayerPresence presence = presenceOf(worldId, userId);
+        Long boatId = presence.getBoatId();
+        if (boatId != null) {
+            Movement voyage = boatMovements.get(boatId);
+            if (voyage != null) {
+                return voyage.positionAt(now, Movement.BOAT_SPEED);
+            }
+            return boatRepository.findById(boatId)
+                    .map(boat -> new Point(boat.getX(), boat.getY()))
+                    .orElse(new Point(presence.getX(), presence.getY()));
+        }
+        Movement walk = playerMovements.get(movementKey(worldId, userId));
+        return walk != null ? walk.positionAt(now, Movement.PLAYER_SPEED) : new Point(presence.getX(), presence.getY());
     }
 
     private Map<String, Object> snapshot(long worldId, long excludingUserId) {

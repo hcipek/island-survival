@@ -36,6 +36,11 @@ public class ResourceNode {
     /// against the current time whenever someone looks.
     private Instant depletedUntil;
 
+    /// For an item pile: whose it is, and when it disappears. Null for
+    /// everything else.
+    private Long ownerId;
+    private Instant expiresAt;
+
     protected ResourceNode() {
     }
 
@@ -77,6 +82,26 @@ public class ResourceNode {
 
     public void setDepletedUntil(Instant depletedUntil) {
         this.depletedUntil = depletedUntil;
+    }
+
+    public Long getOwnerId() {
+        return ownerId;
+    }
+
+    public void setOwnerId(Long ownerId) {
+        this.ownerId = ownerId;
+    }
+
+    public Instant getExpiresAt() {
+        return expiresAt;
+    }
+
+    public void setExpiresAt(Instant expiresAt) {
+        this.expiresAt = expiresAt;
+    }
+
+    public boolean isExpired(Instant now) {
+        return expiresAt != null && !expiresAt.isAfter(now);
     }
 
     public boolean isAvailable(Instant now) {

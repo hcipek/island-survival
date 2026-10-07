@@ -12,8 +12,9 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Duration;
 import java.time.Instant;
 
-/// Each player's hunger in each world: bringing it up to date, pausing it
-/// while they're away, eating, and telling the player about it.
+/// Each player's hunger and health in each world: bringing them up to date,
+/// pausing them while they're away, eating, getting hurt, and telling the
+/// player about it.
 @Service
 public class PlayerVitalsService {
 
@@ -21,6 +22,16 @@ public class PlayerVitalsService {
     /// From full to starving in 15 minutes of play.
     private static final double HUNGER_DRAIN_PER_SECOND = MAX_HUNGER / (15 * 60);
     private static final double HUNGER_PER_BERRY = 15;
+
+    static final double MAX_HEALTH = 100;
+    /// Health slowly comes back while you're well fed: empty to full in
+    /// about 8 minutes.
+    private static final double WELL_FED_HUNGER = 50;
+    private static final double HEALTH_REGEN_PER_SECOND = MAX_HEALTH / (8 * 60);
+    /// Starving costs health: full to dead in about 4 minutes.
+    private static final double STARVING_DAMAGE_PER_SECOND = MAX_HEALTH / (4 * 60);
+    /// Coming back after dying: fed enough not to starve again right away.
+    private static final double RESPAWN_HUNGER = 50;
 
     private final PlayerVitalsRepository playerVitalsRepository;
     private final WorldSessionRegistry sessionRegistry;
@@ -44,10 +55,45 @@ public class PlayerVitalsService {
 
         if (vitals.getHungerSettledAt() != null) {
             Instant now = Instant.now();
-            double hungrySeconds = Duration.between(vitals.getHungerSettledAt(), now).toMillis() / 1000.0;
-            vitals.setHunger(Math.max(0, vitals.getHunger() - hungrySeconds * HUNGER_DRAIN_PER_SECOND));
+            double seconds = Duration.between(vitals.getHungerSettledAt(), now).toMillis() / 1000.0;
+            settle(vitals, seconds);
             vitals.setHungerSettledAt(now);
         }
+        return playerVitalsRepository.save(vitals);
+    }
+
+    /// Moves hunger and health on by [seconds]. Hunger drops steadily, and
+    /// during that time it can pass "well fed" (health comes back) and then
+    /// reach zero (health drops) - so the time is split into those parts.
+    static void settle(PlayerVitals vitals, double seconds) {
+        double hungerBefore = vitals.getHunger();
+        double secondsWellFed = hungerBefore > WELL_FED_HUNGER
+                ? Math.min(seconds, (hungerBefore - WELL_FED_HUNGER) / HUNGER_DRAIN_PER_SECOND)
+                : 0;
+        double secondsUntilStarving = hungerBefore / HUNGER_DRAIN_PER_SECOND;
+        double secondsStarving = Math.max(0, seconds - secondsUntilStarving);
+
+        vitals.setHunger(Math.max(0, hungerBefore - seconds * HUNGER_DRAIN_PER_SECOND));
+        // Being well fed always comes before starving, so heal (up to full)
+        // first, then take the damage.
+        double healed = Math.min(MAX_HEALTH, vitals.getHealth() + secondsWellFed * HEALTH_REGEN_PER_SECOND);
+        vitals.setHealth(Math.max(0, healed - secondsStarving * STARVING_DAMAGE_PER_SECOND));
+    }
+
+    /// Takes [amount] of health, e.g. a boar's bite. Returns the player's
+    /// vitals afterwards - health 0 means they died.
+    public synchronized PlayerVitals hurt(long worldId, long userId, double amount) {
+        PlayerVitals vitals = current(worldId, userId);
+        vitals.setHealth(Math.max(0, vitals.getHealth() - amount));
+        return playerVitalsRepository.save(vitals);
+    }
+
+    /// Back on their feet after dying: full health, and fed enough not to
+    /// starve again straight away.
+    public synchronized PlayerVitals respawn(long worldId, long userId) {
+        PlayerVitals vitals = current(worldId, userId);
+        vitals.setHealth(MAX_HEALTH);
+        vitals.setHunger(Math.max(vitals.getHunger(), RESPAWN_HUNGER));
         return playerVitalsRepository.save(vitals);
     }
 
@@ -99,7 +145,18 @@ public class PlayerVitalsService {
     }
 
     private PlayerStateDto toStateDto(PlayerVitals vitals) {
-        boolean hungerRunning = vitals.getHungerSettledAt() != null && vitals.getHunger() > 0;
-        return new PlayerStateDto(vitals.getHunger(), hungerRunning ? HUNGER_DRAIN_PER_SECOND : 0);
+        boolean inWorld = vitals.getHungerSettledAt() != null;
+        double healthChange = 0;
+        if (inWorld && vitals.getHunger() <= 0) {
+            healthChange = -STARVING_DAMAGE_PER_SECOND;
+        } else if (inWorld && vitals.getHunger() > WELL_FED_HUNGER && vitals.getHealth() < MAX_HEALTH) {
+            healthChange = HEALTH_REGEN_PER_SECOND;
+        }
+        return new PlayerStateDto(
+                vitals.getHunger(),
+                inWorld && vitals.getHunger() > 0 ? HUNGER_DRAIN_PER_SECOND : 0,
+                vitals.getHealth(),
+                healthChange
+        );
     }
 }

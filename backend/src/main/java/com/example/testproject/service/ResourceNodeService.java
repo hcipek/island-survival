@@ -3,10 +3,12 @@ package com.example.testproject.service;
 import com.example.testproject.live.LiveEvents;
 import com.example.testproject.model.Building;
 import com.example.testproject.model.ItemType;
+import com.example.testproject.model.PileItem;
 import com.example.testproject.model.ResourceNode;
 import com.example.testproject.model.ResourceNodeType;
 import com.example.testproject.model.WorldIsland;
 import com.example.testproject.repository.BuildingRepository;
+import com.example.testproject.repository.PileItemRepository;
 import com.example.testproject.repository.ResourceNodeRepository;
 import com.example.testproject.repository.WorldIslandRepository;
 import org.springframework.http.HttpStatus;
@@ -50,6 +52,9 @@ public class ResourceNodeService {
     private static final int WOOD_PER_TREE = 3;
     private static final Duration TREE_REGROW = Duration.ofMinutes(5);
 
+    /// How long a dead player's dropped bag stays before it disappears.
+    static final Duration PILE_LIFETIME = Duration.ofMinutes(10);
+
     /// The most of each loose type lying around on an island at once.
     private static final int HOME_STICKS_CAP = 3;
     private static final int OUTER_STICKS_CAP = 4;
@@ -90,6 +95,7 @@ public class ResourceNodeService {
     private final BuildingRepository buildingRepository;
     private final PlayerVitalsService playerVitalsService;
     private final InventoryService inventoryService;
+    private final PileItemRepository pileItemRepository;
     private final Random random = new Random();
 
     /// When each player (by world and user) last gathered, for the cooldown.
@@ -100,13 +106,15 @@ public class ResourceNodeService {
             WorldIslandRepository worldIslandRepository,
             BuildingRepository buildingRepository,
             PlayerVitalsService playerVitalsService,
-            InventoryService inventoryService
+            InventoryService inventoryService,
+            PileItemRepository pileItemRepository
     ) {
         this.resourceNodeRepository = resourceNodeRepository;
         this.worldIslandRepository = worldIslandRepository;
         this.buildingRepository = buildingRepository;
         this.playerVitalsService = playerVitalsService;
         this.inventoryService = inventoryService;
+        this.pileItemRepository = pileItemRepository;
     }
 
     /// What gathering did to the node: now regrowing, or [removed] entirely
@@ -130,6 +138,9 @@ public class ResourceNodeService {
                 .filter(n -> n.getWorldId().equals(worldId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Nothing to gather there"));
         Instant now = Instant.now();
+        if (node.isExpired(now)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "It's gone");
+        }
 
         if (node.getType() == ResourceNodeType.TREE && inventoryService.held(worldId, userId) != ItemType.AXE) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Hold an axe to chop trees");
@@ -170,6 +181,7 @@ public class ResourceNodeService {
                 resourceNodeRepository.delete(node);
                 yield new GatherResult(node, true);
             }
+            case ITEM_PILE -> pickUpPile(worldId, userId, node);
             case TREE -> {
                 playerVitalsService.requireNotStarving(worldId, userId);
                 inventoryService.add(worldId, userId, ItemType.WOOD, WOOD_PER_TREE);
@@ -253,8 +265,11 @@ public class ResourceNodeService {
     }
 
     public static Map<String, Object> view(ResourceNode node) {
+        Instant now = Instant.now();
+        Long expiresInMs = node.getExpiresAt() == null ? null : Duration.between(now, node.getExpiresAt()).toMillis();
         return LiveEvents.node(
-                node.getId(), node.getType(), node.getX(), node.getY(), regrowsInMillis(node, Instant.now()));
+                node.getId(), node.getType(), node.getX(), node.getY(), regrowsInMillis(node, now),
+                node.getOwnerId(), expiresInMs);
     }
 
     /// Places nodes on every island of [worldId] unless it already has
@@ -277,11 +292,85 @@ public class ResourceNodeService {
 
     /// Every node in [worldId], as clients need to draw them.
     public List<Map<String, Object>> nodesView(long worldId) {
-        return resourceNodeRepository.findAllByWorldId(worldId).stream().map(ResourceNodeService::view).toList();
+        Instant now = Instant.now();
+        return resourceNodeRepository.findAllByWorldId(worldId).stream()
+                .filter(node -> !node.isExpired(now))
+                .map(ResourceNodeService::view)
+                .toList();
     }
 
     public void deleteAllIn(long worldId) {
-        resourceNodeRepository.deleteAll(resourceNodeRepository.findAllByWorldId(worldId));
+        for (ResourceNode node : resourceNodeRepository.findAllByWorldId(worldId)) {
+            pileItemRepository.deleteAll(pileItemRepository.findAllByNodeId(node.getId()));
+            resourceNodeRepository.delete(node);
+        }
+    }
+
+    /// Leaves [items] in a pile at ([x], [y]) that only [ownerId] can pick
+    /// up, until it disappears. Returns null if there was nothing to leave.
+    public synchronized ResourceNode leavePile(long worldId, long ownerId, double x, double y, List<InventoryService.Stack> items) {
+        if (items.isEmpty()) {
+            return null;
+        }
+        WorldIsland island = worldIslandRepository.findAllByWorldId(worldId).stream()
+                .min((a, b) -> Double.compare(
+                        Math.hypot(a.getCenterX() - x, a.getCenterY() - y) - a.getRadius(),
+                        Math.hypot(b.getCenterX() - x, b.getCenterY() - y) - b.getRadius()))
+                .orElseThrow();
+        ResourceNode pile = new ResourceNode(worldId, island.getId(), ResourceNodeType.ITEM_PILE, x, y);
+        pile.setOwnerId(ownerId);
+        pile.setExpiresAt(Instant.now().plus(PILE_LIFETIME));
+        pile = resourceNodeRepository.save(pile);
+        for (InventoryService.Stack stack : items) {
+            pileItemRepository.save(new PileItem(pile.getId(), stack.item(), stack.quantity()));
+        }
+        return pile;
+    }
+
+    /// Removes item piles that have been left too long, returning their ids.
+    public synchronized List<Long> removeExpiredPiles(long worldId) {
+        Instant now = Instant.now();
+        List<Long> removed = new ArrayList<>();
+        for (ResourceNode node : resourceNodeRepository.findAllByWorldId(worldId)) {
+            if (node.getType() == ResourceNodeType.ITEM_PILE && node.isExpired(now)) {
+                pileItemRepository.deleteAll(pileItemRepository.findAllByNodeId(node.getId()));
+                resourceNodeRepository.delete(node);
+                removed.add(node.getId());
+            }
+        }
+        return removed;
+    }
+
+    /// Picks up as much of [pile] as fits in the bag. Empty afterwards, it's
+    /// removed.
+    private GatherResult pickUpPile(long worldId, long userId, ResourceNode pile) {
+        if (!Long.valueOf(userId).equals(pile.getOwnerId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Those are someone else's things");
+        }
+        List<PileItem> items = pileItemRepository.findAllByNodeId(pile.getId());
+        boolean tookSomething = false;
+        for (PileItem stack : items) {
+            int taken = Math.min(stack.getQuantity(), inventoryService.roomFor(worldId, userId, stack.getItem()));
+            if (taken == 0) {
+                continue;
+            }
+            inventoryService.add(worldId, userId, stack.getItem(), taken);
+            tookSomething = true;
+            if (taken == stack.getQuantity()) {
+                pileItemRepository.delete(stack);
+            } else {
+                stack.setQuantity(stack.getQuantity() - taken);
+                pileItemRepository.save(stack);
+            }
+        }
+        if (!tookSomething && !items.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Your bag is full");
+        }
+        if (pileItemRepository.findAllByNodeId(pile.getId()).isEmpty()) {
+            resourceNodeRepository.delete(pile);
+            return new GatherResult(pile, true);
+        }
+        return new GatherResult(pile, false);
     }
 
     public static long regrowsInMillis(ResourceNode node, Instant now) {

@@ -141,3 +141,25 @@ class StonesComponent extends ResourceNodeComponent {
     canvas.drawOval(Rect.fromLTWH(size.x * 0.3, size.y * 0.62, size.x * 0.36, size.y * 0.3), light);
   }
 }
+
+/// A small sack: what a player's bag left behind when they died. Only they
+/// can pick it up, and it disappears after a while.
+class ItemPileComponent extends ResourceNodeComponent {
+  final int? ownerId;
+
+  ItemPileComponent({required super.id, required super.position, required double islandRadius, this.ownerId})
+      : super(type: ResourceNodeType.itemPile, size: Vector2.all(islandRadius * 0.08));
+
+  @override
+  void render(Canvas canvas) {
+    final sack = Paint()..color = const Color(0xFFBCAAA4);
+    final dark = Paint()..color = const Color(0xFF6D4C41);
+    canvas.drawOval(Rect.fromLTWH(size.x * 0.1, size.y * 0.3, size.x * 0.8, size.y * 0.65), sack);
+    canvas.drawRect(Rect.fromLTWH(size.x * 0.4, size.y * 0.15, size.x * 0.2, size.y * 0.2), sack);
+    canvas.drawLine(
+      Offset(size.x * 0.35, size.y * 0.33),
+      Offset(size.x * 0.65, size.y * 0.33),
+      dark..strokeWidth = size.x * 0.06,
+    );
+  }
+}

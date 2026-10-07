@@ -4,7 +4,7 @@ import 'package:flame/components.dart';
 
 enum BuildingType { port, lumberjack }
 
-enum ResourceNodeType { tree, berryBush, sticks, stones }
+enum ResourceNodeType { tree, berryBush, sticks, stones, itemPile }
 
 /// A tree, berry bush or pile of sticks, shared by everyone in the world.
 /// [regrowsIn] is how long until it can be gathered from again (zero if it
@@ -16,12 +16,17 @@ class ResourceNodeRecord {
   final double y;
   final Duration regrowsIn;
 
+  /// For an item pile (a dead player's dropped bag): whose it is - only they
+  /// can pick it up.
+  final int? ownerId;
+
   const ResourceNodeRecord({
     required this.id,
     required this.type,
     required this.x,
     required this.y,
     this.regrowsIn = Duration.zero,
+    this.ownerId,
   });
 }
 

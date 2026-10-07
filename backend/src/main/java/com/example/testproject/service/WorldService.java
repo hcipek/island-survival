@@ -1,6 +1,7 @@
 package com.example.testproject.service;
 
 import com.example.testproject.live.LiveEvents;
+import com.example.testproject.live.Point;
 import com.example.testproject.live.WorldSessionRegistry;
 import com.example.testproject.model.*;
 import com.example.testproject.model.dto.BoatDto;
@@ -119,6 +120,31 @@ public class WorldService {
         inventoryService.deleteAllIn(worldId);
         resourceNodeService.deleteAllIn(worldId);
         worldRepository.deleteById(worldId);
+    }
+
+    /// Where players appear when they first arrive or respawn: the middle of
+    /// the home island.
+    public Point homeSpawn(long worldId) {
+        WorldIsland home = worldIslandRepository.findAllByWorldId(worldId).stream()
+                .filter(WorldIsland::isHome)
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "World has no home island"));
+        return new Point(home.getCenterX(), home.getCenterY());
+    }
+
+    /// A spot on the sand of the island nearest ([x], [y]), on the side
+    /// facing it - somewhere a player can walk to.
+    public Point shoreNear(long worldId, double x, double y) {
+        WorldIsland island = nearestIsland(worldId, x, y);
+        double dx = x - island.getCenterX();
+        double dy = y - island.getCenterY();
+        double length = Math.hypot(dx, dy);
+        if (length == 0) {
+            return new Point(island.getCenterX(), island.getCenterY());
+        }
+        // Just inside the edge, on the sand ring.
+        double distance = island.getRadius() * (1 - WorldIsland.SAND_BAND_FRACTION);
+        return new Point(island.getCenterX() + dx / length * distance, island.getCenterY() + dy / length * distance);
     }
 
     public WorldDto getWorld(long worldId) {

@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:ui';
 
 import 'package:flame/game.dart';
@@ -36,6 +37,7 @@ Color colorFromHex(String hex) {
 /// their [InventoryState].)
 class PlayerState {
   static const double maxHunger = 100;
+  static const double maxHealth = 100;
 
   /// 100 is full, 0 is starving.
   final double hunger;
@@ -43,15 +45,37 @@ class PlayerState {
   /// How fast [hunger] is dropping - zero while not in the world.
   final double hungerDrainPerSecond;
 
-  PlayerState({required this.hunger, required this.hungerDrainPerSecond});
+  /// 100 is full health, 0 is dead.
+  final double health;
+
+  /// How [health] is changing right now: up while well fed, down while
+  /// starving.
+  final double healthChangePerSecond;
+
+  PlayerState({
+    required this.hunger,
+    required this.hungerDrainPerSecond,
+    this.health = maxHealth,
+    this.healthChangePerSecond = 0,
+  });
 
   bool get isStarving => hunger <= 0;
   bool get isFull => hunger >= maxHunger;
+
+  /// This state moved on by [seconds], as the server would.
+  PlayerState after(double seconds) => PlayerState(
+        hunger: max(0, hunger - hungerDrainPerSecond * seconds),
+        hungerDrainPerSecond: hungerDrainPerSecond,
+        health: (health + healthChangePerSecond * seconds).clamp(0, maxHealth),
+        healthChangePerSecond: healthChangePerSecond,
+      );
 
   factory PlayerState.fromJson(Map<String, dynamic> json) {
     return PlayerState(
       hunger: (json['hunger'] as num?)?.toDouble() ?? maxHunger,
       hungerDrainPerSecond: (json['hungerDrainPerSecond'] as num?)?.toDouble() ?? 0,
+      health: (json['health'] as num?)?.toDouble() ?? maxHealth,
+      healthChangePerSecond: (json['healthChangePerSecond'] as num?)?.toDouble() ?? 0,
     );
   }
 }
@@ -111,11 +135,13 @@ ResourceNodeRecord nodeFromJson(Map<String, dynamic> json) {
       'BERRY_BUSH' => ResourceNodeType.berryBush,
       'STICKS' => ResourceNodeType.sticks,
       'STONES' => ResourceNodeType.stones,
+      'ITEM_PILE' => ResourceNodeType.itemPile,
       final other => throw Exception('Unknown resource node type: $other'),
     },
     x: (json['x'] as num).toDouble(),
     y: (json['y'] as num).toDouble(),
     regrowsIn: Duration(milliseconds: (json['regrowsInMs'] as num?)?.toInt() ?? 0),
+    ownerId: json['ownerId'] as int?,
   );
 }
 

@@ -145,7 +145,7 @@ though the islands would normally have filled up within minutes.
 **Cost:** a handful of queries however long the world was empty.
 
 ### D12. Only the background tick uses a timer
-*2026-09-30*
+*2026-09-30 · extended by D23*
 
 Everything that changes over time is worked out from timestamps when
 someone looks: hunger, lumberjack storage, and regrowing bushes, trees and
@@ -273,3 +273,28 @@ could be allowed to change them. With login, "the creator can edit
 settings" can be added.
 **Keep the list short:** each setting multiplies the cases to test, so new
 settings are added only when a feature really needs one.
+
+### D23. Health, dying and dropped bags
+*2026-10-07*
+
+Health goes from 0 to 100. It comes back slowly while you're well fed
+(hunger above half) and drops while you're starving. Like hunger, it's
+worked out from time when needed: a stretch of time is split into its
+well-fed, in-between and starving parts, and healing is capped at full
+before any starving damage. A check every 2 s (`WorldTicker`) brings
+everyone's vitals up to date and notices deaths.
+
+On death you wake on the home island with full health and **hunger at
+half**. The bag (slots 10–49) is handled by the world setting from D22.
+**Dropped** bags become an `ITEM_PILE` where you died, or on the nearest
+shore if you died at sea. **Only the owner** can pick a pile up, and it
+**disappears after 10 minutes**. The quick-access bar is always kept.
+
+**Why:** the user accepted health with regeneration and the death options.
+The details marked in bold weren't specified, so these are defaults
+chosen to avoid problems: respawning at hunger 0 would starve you again
+straight away, a pile at sea couldn't be reached, and others taking your
+things felt harsh for now. All of them are easy to change.
+**Starving** still blocks building and wood gathering as before (D9), and
+now it costs health as well.
+

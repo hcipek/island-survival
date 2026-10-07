@@ -111,15 +111,15 @@ class CoordinatesHud extends StatelessWidget {
   }
 }
 
-class HungerHud extends StatelessWidget {
+/// Health and hunger, top left.
+class VitalsHud extends StatelessWidget {
   final PlayerState island;
 
-  const HungerHud({super.key, required this.island});
+  const VitalsHud({super.key, required this.island});
 
   @override
   Widget build(BuildContext context) {
-    final fraction = island.hunger / PlayerState.maxHunger;
-    final color = fraction <= 0.25 ? Colors.redAccent : Colors.lightGreenAccent;
+    final healthLow = island.health <= 25;
     return Card(
       color: Colors.black.withValues(alpha: 0.55),
       child: Padding(
@@ -130,28 +130,62 @@ class HungerHud extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                island.isStarving ? 'Starving! Eat some berries' : 'Hunger ${island.hunger.ceil()}',
-                style: TextStyle(
-                  color: island.isStarving ? Colors.redAccent : Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
+              _Bar(
+                label: island.healthChangePerSecond > 0
+                    ? 'Health ${island.health.ceil()} (healing)'
+                    : 'Health ${island.health.ceil()}',
+                fraction: island.health / PlayerState.maxHealth,
+                color: healthLow ? Colors.redAccent : Colors.pinkAccent,
+                warning: healthLow,
               ),
-              const SizedBox(height: 4),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: fraction,
-                  minHeight: 8,
-                  color: color,
-                  backgroundColor: Colors.white24,
-                ),
+              const SizedBox(height: 8),
+              _Bar(
+                label: island.isStarving ? 'Starving! Eat some berries' : 'Hunger ${island.hunger.ceil()}',
+                fraction: island.hunger / PlayerState.maxHunger,
+                color: island.hunger <= 25 ? Colors.redAccent : Colors.lightGreenAccent,
+                warning: island.isStarving,
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _Bar extends StatelessWidget {
+  final String label;
+  final double fraction;
+  final Color color;
+  final bool warning;
+
+  const _Bar({required this.label, required this.fraction, required this.color, this.warning = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: warning ? Colors.redAccent : Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: fraction,
+            minHeight: 8,
+            color: color,
+            backgroundColor: Colors.white24,
+          ),
+        ),
+      ],
     );
   }
 }

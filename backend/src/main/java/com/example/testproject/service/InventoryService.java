@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -153,6 +154,22 @@ public class InventoryService {
             source.setSlotIndex(to);
             inventorySlotRepository.save(source);
         }
+    }
+
+    /// A stack of items, e.g. what was in the bag when its owner died.
+    public record Stack(ItemType item, int quantity) {
+    }
+
+    /// Empties the bag (not the quick-access bar) and returns what was in it.
+    public synchronized List<Stack> takeBag(long worldId, long userId) {
+        List<Stack> taken = new ArrayList<>();
+        for (InventorySlot slot : slotsOf(worldId, userId)) {
+            if (slot.getSlotIndex() >= HOTBAR_SIZE) {
+                taken.add(new Stack(slot.getItem(), slot.getQuantity()));
+                inventorySlotRepository.delete(slot);
+            }
+        }
+        return taken;
     }
 
     /// Throws away everything in [slot].

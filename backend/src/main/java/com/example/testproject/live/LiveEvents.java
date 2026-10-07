@@ -106,6 +106,18 @@ public final class LiveEvents {
         return event("buildingUpdated", "building", building);
     }
 
+    /// Someone died and came back at [position] (the home island).
+    public static Map<String, Object> playerRespawned(long userId, Point position) {
+        return event("playerRespawned", "userId", userId, "position", position);
+    }
+
+    /// Only to the player who died: why, and what happened to their bag -
+    /// `KEPT`, `DROPPED` (into the pile [pileId]), `LOST`, or `EMPTY` if there
+    /// was nothing in it.
+    public static Map<String, Object> youDied(String cause, String bag, Long pileId) {
+        return event("youDied", "cause", cause, "bag", bag, "pileId", pileId);
+    }
+
     public static Map<String, Object> error(String message) {
         return event("error", "message", message);
     }
@@ -127,10 +139,16 @@ public final class LiveEvents {
         return fields("id", id, "ownerId", ownerId, "x", x, "y", y, "movement", movement(movement));
     }
 
-    /// A tree, bush or pile of sticks. [regrowsInMs] is 0 when it can be
-    /// gathered from right now.
-    public static Map<String, Object> node(long id, ResourceNodeType type, double x, double y, long regrowsInMs) {
-        return fields("id", id, "type", type, "x", x, "y", y, "regrowsInMs", regrowsInMs);
+    /// A tree, bush, sticks, stones or item pile. [regrowsInMs] is 0 when it
+    /// can be gathered from right now. [ownerId] and [expiresInMs] are only
+    /// set for item piles: whose it is, and when it disappears.
+    public static Map<String, Object> node(
+            long id, ResourceNodeType type, double x, double y, long regrowsInMs, Long ownerId, Long expiresInMs
+    ) {
+        return fields(
+                "id", id, "type", type, "x", x, "y", y, "regrowsInMs", regrowsInMs,
+                "ownerId", ownerId, "expiresInMs", expiresInMs
+        );
     }
 
     private static Map<String, Object> movement(Movement movement) {

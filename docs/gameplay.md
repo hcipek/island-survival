@@ -29,8 +29,8 @@ settings.
 | Animal aggression | on: boars attack players / off: animals never attack | on |
 | When you die, your bag is... | **kept** / **dropped** in a pile where you died, to go back for before it disappears / **lost** | dropped |
 
-Your quick-access bar is always kept. (Animals and dying are being built;
-until then these settings are stored but don't change anything yet.)
+Your quick-access bar is always kept. (Animals are being built, so
+*animal aggression* doesn't change anything yet.)
 
 ## Getting around
 
@@ -95,14 +95,31 @@ Tools only do something **while held**:
 - **Hammer:** build anything, including boats.
 - **Spear:** planned, together with hunting (see [roadmap.md](roadmap.md)).
 
-## Food and hunger
+## Food, hunger and health
 
 - A **hunger bar** at the top left goes from full to empty over about 15
   minutes of play. It pauses while you're away, so time away doesn't count.
 - **Eat** by holding berries and pressing **Eat** (or **E**).
 - At 0 you're **starving**: you can still move and pick berries, but you
-  can't gather wood, chop or build until you eat.
+  can't gather wood, chop or build until you eat, and you **lose health**.
+- A **health bar** sits above it. Health slowly **comes back while you're
+  well fed** (hunger above half) and **drops while you're starving**. Like
+  hunger, it only changes while you're in the world.
 - Values are in `backend/.../service/PlayerVitalsService.java`.
+
+## Dying
+
+- At 0 health you die and wake up in the middle of the **home island**,
+  with full health and hunger at half.
+- What happens to your **bag** depends on the world's setting (see *World
+  settings*): kept, **dropped** in a sack where you died, or lost. Your
+  **quick-access bar is always kept**.
+- A **dropped sack** can only be picked up by you, and it disappears after
+  about 10 minutes. If you died at sea, it's left on the nearest shore. Tap
+  it to pick up as much as fits in your bag; anything left stays in the
+  sack.
+- A message tells you what happened, and everyone else sees you reappear
+  at home.
 
 ## Building
 

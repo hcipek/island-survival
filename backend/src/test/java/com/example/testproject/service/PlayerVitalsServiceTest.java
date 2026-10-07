@@ -102,6 +102,86 @@ class PlayerVitalsServiceTest {
     }
 
     @Test
+    void youStartWithFullHealth() {
+        assertThat(state().health()).isEqualTo(100);
+        assertThat(state().healthChangePerSecond()).isZero();
+    }
+
+    @Test
+    void healthComesBackWhileYouAreWellFed() {
+        playerVitalsService.playerEntered(worldId, aliceId);
+        setHungerAndHealth(100, 50);
+        pretendHungerLastSettledSecondsAgo(60);
+
+        // Full in 8 minutes: 60 seconds is an eighth of that.
+        assertThat(state().health()).isCloseTo(62.5, within(0.1));
+        assertThat(state().healthChangePerSecond()).isPositive();
+    }
+
+    @Test
+    void healthDoesNotComeBackWhenYouAreNotWellFed() {
+        playerVitalsService.playerEntered(worldId, aliceId);
+        setHungerAndHealth(40, 50);
+        pretendHungerLastSettledSecondsAgo(60);
+
+        assertThat(state().health()).isEqualTo(50);
+        assertThat(state().healthChangePerSecond()).isZero();
+    }
+
+    @Test
+    void starvingCostsHealth() {
+        playerVitalsService.playerEntered(worldId, aliceId);
+        setHungerAndHealth(0, 100);
+        pretendHungerLastSettledSecondsAgo(60);
+
+        // Dead in 4 minutes: 60 seconds is a quarter of that.
+        assertThat(state().health()).isCloseTo(75, within(0.1));
+        assertThat(state().healthChangePerSecond()).isNegative();
+    }
+
+    @Test
+    void aLongStretchIsSplitIntoWellFedAndStarvingParts() {
+        playerVitalsService.playerEntered(worldId, aliceId);
+        // Hunger 60 reaches 50 after 90 s and 0 after 540 s; 600 s in all
+        // means 90 s of healing, then 60 s of starving.
+        setHungerAndHealth(60, 50);
+        pretendHungerLastSettledSecondsAgo(600);
+
+        assertThat(state().hunger()).isZero();
+        assertThat(state().health()).isCloseTo(50 + 18.75 - 25, within(0.1));
+    }
+
+    @Test
+    void healingStopsAtFullBeforeStarvingStarts() {
+        playerVitalsService.playerEntered(worldId, aliceId);
+        // 45 s of healing would go past full, then 60 s of starving.
+        setHungerAndHealth(55, 95);
+        pretendHungerLastSettledSecondsAgo(45 + 495 - 45 + 60);
+
+        assertThat(state().health()).isCloseTo(75, within(0.1));
+    }
+
+    @Test
+    void healthDoesNotChangeWhileYouAreAway() {
+        setHungerAndHealth(0, 30);
+
+        assertThat(state().health()).isEqualTo(30);
+        assertThat(state().healthChangePerSecond()).isZero();
+    }
+
+    @Test
+    void getHurtAndRespawn() {
+        playerVitalsService.hurt(worldId, aliceId, 30);
+        assertThat(state().health()).isEqualTo(70);
+
+        setHungerAndHealth(10, 0);
+        playerVitalsService.respawn(worldId, aliceId);
+
+        assertThat(state().health()).isEqualTo(100);
+        assertThat(state().hunger()).isEqualTo(50);
+    }
+
+    @Test
     void hungerNeverGoesBelowZero() {
         playerVitalsService.playerEntered(worldId, aliceId);
         pretendHungerLastSettledSecondsAgo(10_000);
@@ -180,6 +260,13 @@ class PlayerVitalsServiceTest {
     private PlayerVitals vitals() {
         state(); // creates them if needed
         return playerVitalsRepository.findByWorldIdAndUserId(worldId, aliceId).orElseThrow();
+    }
+
+    private void setHungerAndHealth(double hunger, double health) {
+        PlayerVitals vitals = vitals();
+        vitals.setHunger(hunger);
+        vitals.setHealth(health);
+        playerVitalsRepository.save(vitals);
     }
 
     private void setHunger(double hunger) {
