@@ -125,6 +125,9 @@ class IslandGame extends FlameGame {
   /// Flutter UI can ask the server for what it gives.
   void Function(int nodeId)? onLocalGather;
 
+  /// Called when this player strikes an animal with their spear.
+  void Function(int animalId)? onLocalAttack;
+
   /// Called when this player has walked up to their lumberjack to collect
   /// its wood.
   void Function(int buildingId)? onLocalCollect;
@@ -424,6 +427,44 @@ class IslandGame extends FlameGame {
     } else {
       animal.follow(movement);
     }
+  }
+
+  /// How close an animal has to be to strike it. The server allows a
+  /// little more, so a moving animal doesn't make a fair hit miss.
+  static const double spearReach = 130;
+
+  /// Called when the player taps an animal: strikes it if close enough,
+  /// otherwise walks towards it and strikes on arrival.
+  void requestAttack(AnimalComponent animal) {
+    if (player.boardedBoat != null) {
+      onNotice?.call('Land on the island first');
+      return;
+    }
+    if (heldItem != ItemType.spear) {
+      onNotice?.call('Hold a spear to hunt');
+      return;
+    }
+    if (player.position.distanceTo(animal.position) <= spearReach) {
+      _stopGathering();
+      onLocalAttack?.call(animal.id);
+      return;
+    }
+    final offset = player.position - animal.position;
+    final direction = offset.length == 0 ? Vector2(0, 1) : offset.normalized();
+    final spot = currentPlayerIsland.clampToIsland(animal.position + direction * (spearReach * 0.7));
+    _walkTo(spot, onArrived: () {
+      // It may have moved on in the meantime.
+      if (animals[animal.id] == animal && player.position.distanceTo(animal.position) <= spearReach) {
+        onLocalAttack?.call(animal.id);
+      } else {
+        onNotice?.call('It got away');
+      }
+    });
+  }
+
+  /// An animal was hit.
+  void hurtAnimal(int animalId, int health) {
+    animals[animalId]?.health = health;
   }
 
   void removeAnimal(int animalId) {

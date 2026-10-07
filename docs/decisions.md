@@ -321,3 +321,19 @@ on both sides; see `Movement.PLAYER_SPEED`).
 **Balance:** players walk faster than boars, so you can always escape.
 The numbers are in `AnimalService` and `AnimalType`.
 
+### D25. Hunting with a spear, for meat
+*2026-10-07*
+
+A spear (3 wood) has to be held. Tapping an animal within reach strikes
+it, at most about once a second, and the server checks the distance
+between where the player and the animal are right now. Rabbits take one
+hit and give 1 meat; boars take three and give 3. Meat is eaten like
+berries and fills more hunger.
+
+**Why:** the user accepted these suggestions. There's no throwing yet, so
+the spear stays in your hand, as the user said.
+**A killing blow is refused when there's no room for the meat**, the same
+all-or-nothing rule as gathering (D14), so nothing is wasted.
+**Hunting is allowed while starving**, like picking berries (D9), because
+it's a way to get food.
+

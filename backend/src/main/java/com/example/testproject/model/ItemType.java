@@ -7,9 +7,11 @@ package com.example.testproject.model;
 public enum ItemType {
     STONE(Kind.RESOURCE),
     BERRY(Kind.RESOURCE),
+    MEAT(Kind.RESOURCE),
     WOOD(Kind.RESOURCE),
     AXE(Kind.TOOL),
-    HAMMER(Kind.TOOL);
+    HAMMER(Kind.TOOL),
+    SPEAR(Kind.TOOL);
 
     public enum Kind {
         /// Basic materials - stack up to 50 per slot.

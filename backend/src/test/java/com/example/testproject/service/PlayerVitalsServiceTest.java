@@ -194,16 +194,25 @@ class PlayerVitalsServiceTest {
     void aBerryFillsYouUp() {
         setHunger(50);
 
-        playerVitalsService.eatBerry(worldId, aliceId);
+        playerVitalsService.eat(worldId, aliceId, ItemType.BERRY);
 
         assertThat(state().hunger()).isEqualTo(65);
+    }
+
+    @Test
+    void meatFillsYouUpMoreThanBerries() {
+        setHunger(50);
+
+        playerVitalsService.eat(worldId, aliceId, ItemType.MEAT);
+
+        assertThat(state().hunger()).isEqualTo(85);
     }
 
     @Test
     void eatingNeverGoesAboveFull() {
         setHunger(95);
 
-        playerVitalsService.eatBerry(worldId, aliceId);
+        playerVitalsService.eat(worldId, aliceId, ItemType.BERRY);
 
         assertThat(state().hunger()).isEqualTo(100);
     }

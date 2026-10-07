@@ -14,28 +14,13 @@
   trees), hammer (build), lumberjack storage and collecting
 - **Quality:** one tab per user, coming back where you left off, the client
   split into smaller files
+- **Hunting and health:** world settings, health and dying (with the bag
+  kept, dropped or lost), rabbits and boars, spear and meat
 
-## In progress: hunting and health
+## Recently finished: hunting and health
 
-The user accepted these suggestions, and added **world settings** for
-animal aggression and the bag on death (D22). Building it in steps: world
-settings ✅, health and death ✅ (D23), animals ✅ (D24), then the spear
-with meat.
-
-1. **Animals:** **rabbits** (flee, one hit, meat) and **boars** (fight
-   back, three hits, more meat, and what hurts you), mostly on the outer
-   islands. There's a limit per island, and new ones appear over time.
-2. **Spear:** made from **wood**. Hold it and tap an animal within range.
-   There's no real throwing yet, so the spear stays in your hand.
-3. **Meat:** **fills hunger more than berries.** Cooking at a campfire
-   could come later.
-4. **Health:** **100, slowly regenerating while well fed.** You lose it from
-   boar attacks and from starving, which would then replace starving only
-   blocking building.
-5. **Death:** respawn on the home island. What happens to the bag is now a
-   **world setting**: kept, dropped as a pile (it disappears after about
-   10 minutes, and only you can pick it up), or lost. The quick-access bar
-   is always kept.
+World settings (D22), health and dying (D23), animals (D24), and the spear
+with meat (D25).
 
 ## Later
 
@@ -46,6 +31,7 @@ with meat.
 - **More buildings,** e.g. a quarry, or a warehouse for extra storage
 - **Advanced resources,** possibly with different stack sizes
 - **Construction time** for buildings (not asked for yet)
+- **Throwing the spear** (it's only held for now)
 - **Campfire and cooking**
 - **Removing boats**
 - **Tuning** numbers (costs, rates, times) after more play

@@ -5,7 +5,8 @@ import java.util.List;
 /// Something a player can make from what's in their inventory.
 public enum Recipe {
     AXE(ItemType.AXE, List.of(new Ingredient(ItemType.WOOD, 3), new Ingredient(ItemType.STONE, 2))),
-    HAMMER(ItemType.HAMMER, List.of(new Ingredient(ItemType.WOOD, 2), new Ingredient(ItemType.STONE, 3)));
+    HAMMER(ItemType.HAMMER, List.of(new Ingredient(ItemType.WOOD, 2), new Ingredient(ItemType.STONE, 3))),
+    SPEAR(ItemType.SPEAR, List.of(new Ingredient(ItemType.WOOD, 3)));
 
     public record Ingredient(ItemType item, int quantity) {
     }

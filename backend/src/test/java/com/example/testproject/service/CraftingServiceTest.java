@@ -64,6 +64,16 @@ class CraftingServiceTest {
     }
 
     @Test
+    void aSpearIsMadeFromThreeWood() {
+        give(ItemType.WOOD, 3);
+
+        craftingService.craft(worldId, aliceId, "SPEAR");
+
+        assertThat(count(ItemType.SPEAR)).isEqualTo(1);
+        assertThat(count(ItemType.WOOD)).isZero();
+    }
+
+    @Test
     void missingIngredientsMeanNothingIsUsedUp() {
         give(ItemType.WOOD, 3);
         give(ItemType.STONE, 1);
@@ -97,7 +107,7 @@ class CraftingServiceTest {
     void recipesAreListedForTheClient() {
         assertThat(craftingService.recipesView())
                 .extracting(r -> r.get("id"))
-                .containsExactly("AXE", "HAMMER");
+                .containsExactly("AXE", "HAMMER", "SPEAR");
     }
 
     private void give(ItemType item, int quantity) {

@@ -126,7 +126,7 @@ class LiveWorldTest {
         assertThat(list(snapshot, "players")).isEmpty();
         assertThat(number(map(snapshot, "state"), "hunger")).isEqualTo(100);
         assertThat(list(map(snapshot, "inventory"), "slots")).isEmpty(); // everyone starts empty-handed
-        assertThat(list(snapshot, "recipes")).extracting(r -> r.get("id")).containsExactly("AXE", "HAMMER");
+        assertThat(list(snapshot, "recipes")).extracting(r -> r.get("id")).containsExactly("AXE", "HAMMER", "SPEAR");
         Map<String, Object> settings = map(map(snapshot, "world"), "settings");
         assertThat(settings.get("animalAggression")).isEqualTo(true);
         assertThat(settings.get("inventoryOnDeath")).isEqualTo("DROP");
@@ -631,6 +631,88 @@ class LiveWorldTest {
     }
 
     @Test
+    void huntingARabbitGivesMeatAndEveryoneSeesItGo() throws Exception {
+        inventoryService.add(worldId, aliceId, ItemType.SPEAR, 1); // slot 0, held
+        TestClient bob = connectAndJoin(bobId);
+        TestClient alice = joinAt(worldId, aliceId, point(100, 0));
+        bob.expectIgnoringAnimals("playerJoined");
+        long rabbit = animalService.spawnAt(worldId, AnimalType.RABBIT, new Point(200, 0)).id();
+
+        alice.send(Map.of("type", "attack", "animalId", rabbit));
+
+        Map<String, Object> killed = bob.expectIgnoringAnimalMoves("animalKilled");
+        assertThat(number(killed, "animalId")).isEqualTo(rabbit);
+        assertThat(number(killed, "byUserId")).isEqualTo(aliceId);
+        alice.expectIgnoringAnimalMoves("animalKilled");
+        assertThat(number(slotWith("MEAT", alice.expectIgnoringAnimals("inventory")), "quantity")).isEqualTo(1);
+        assertThat(animalService.animal(worldId, rabbit)).isNull();
+    }
+
+    @Test
+    void aBoarTakesThreeHitsAndGivesMoreMeat() throws Exception {
+        inventoryService.add(worldId, aliceId, ItemType.SPEAR, 1);
+        TestClient alice = joinAt(worldId, aliceId, point(100, 0));
+        long boar = animalService.spawnAt(worldId, AnimalType.BOAR, new Point(200, 0)).id();
+
+        alice.send(Map.of("type", "attack", "animalId", boar));
+        assertThat(number(alice.expectIgnoringAnimalMoves("animalHurt"), "health")).isEqualTo(2);
+        alice.send(Map.of("type", "attack", "animalId", boar));
+        assertThat(alice.expectIgnoringAnimals("error").get("message")).isEqualTo("Still getting ready");
+
+        for (int hit = 0; hit < 2; hit++) {
+            Thread.sleep(1050); // the spear's cooldown
+            alice.send(Map.of("type", "attack", "animalId", boar));
+        }
+
+        alice.expectIgnoringAnimalMoves("animalHurt");
+        alice.expectIgnoringAnimalMoves("animalKilled");
+        assertThat(number(slotWith("MEAT", alice.expectIgnoringAnimals("inventory")), "quantity")).isEqualTo(3);
+    }
+
+    @Test
+    void huntingNeedsAHeldSpearAndToBeCloseEnough() throws Exception {
+        inventoryService.add(worldId, aliceId, ItemType.WOOD, 5); // slot 0, held - not a spear
+        inventoryService.add(worldId, aliceId, ItemType.SPEAR, 1); // slot 1
+        TestClient alice = joinAt(worldId, aliceId, point(100, 0));
+        long near = animalService.spawnAt(worldId, AnimalType.RABBIT, new Point(200, 0)).id();
+        long far = animalService.spawnAt(worldId, AnimalType.RABBIT, new Point(-400, 0)).id();
+
+        alice.send(Map.of("type", "attack", "animalId", near));
+        assertThat(alice.expectIgnoringAnimals("error").get("message")).isEqualTo("Hold a spear to hunt");
+
+        alice.send(Map.of("type", "select", "slot", 1));
+        alice.expectIgnoringAnimals("inventory");
+        alice.send(Map.of("type", "attack", "animalId", far));
+        assertThat(alice.expectIgnoringAnimals("error").get("message")).isEqualTo("Too far away - get closer");
+    }
+
+    @Test
+    void aKillThatWouldNotFitInYourBagIsRefused() throws Exception {
+        inventoryService.add(worldId, aliceId, ItemType.SPEAR, 1);
+        inventoryService.add(worldId, aliceId, ItemType.STONE, 50 * 49); // every other slot full
+        TestClient alice = joinAt(worldId, aliceId, point(100, 0));
+        long rabbit = animalService.spawnAt(worldId, AnimalType.RABBIT, new Point(200, 0)).id();
+
+        alice.send(Map.of("type", "attack", "animalId", rabbit));
+
+        assertThat(alice.expectIgnoringAnimals("error").get("message")).isEqualTo("Make room in your bag first");
+        assertThat(animalService.animal(worldId, rabbit)).isNotNull();
+    }
+
+    @Test
+    void meatIsEatenLikeBerries() throws Exception {
+        inventoryService.add(worldId, aliceId, ItemType.MEAT, 2);
+        TestClient alice = connectAndJoin(aliceId);
+        var vitals = playerVitalsRepository.findByWorldIdAndUserId(worldId, aliceId).orElseThrow();
+        vitals.setHunger(40);
+        playerVitalsRepository.save(vitals);
+
+        alice.send(Map.of("type", "use"));
+
+        assertThat(number(map(alice.expectIgnoringAnimals("state"), "state"), "hunger")).isCloseTo(75, within(0.5));
+    }
+
+    @Test
     void onlyOneTabCanPlayAsAUserAtATime() throws Exception {
         TestClient alice = connectAs(worldId, aliceId, "tab-1");
         alice.expect("snapshot");
@@ -849,6 +931,20 @@ class LiveWorldTest {
                 Map<String, Object> message = expectAny();
                 String actual = (String) message.get("type");
                 if (actual.startsWith("animal")) {
+                    continue;
+                }
+                assertThat(actual).as("message: %s", message).isEqualTo(type);
+                return message;
+            }
+        }
+
+        /// The next message of [type], skipping animals walking about (but
+        /// not animals getting hurt or killed).
+        Map<String, Object> expectIgnoringAnimalMoves(String type) throws InterruptedException {
+            while (true) {
+                Map<String, Object> message = expectAny();
+                String actual = (String) message.get("type");
+                if (actual.equals("animalMoved") || actual.equals("animalAdded")) {
                     continue;
                 }
                 assertThat(actual).as("message: %s", message).isEqualTo(type);

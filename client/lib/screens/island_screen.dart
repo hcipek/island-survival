@@ -144,7 +144,7 @@ class _IslandScreenState extends State<IslandScreen> {
   void _useHeld() {
     final held = _inventory.value.held;
     if (held == null) return;
-    if (held.item == ItemType.berry) {
+    if (isFood(held.item)) {
       if (_currentIsland?.isFull ?? false) {
         _showNotice("You're not hungry");
         return;
@@ -242,7 +242,8 @@ class _IslandScreenState extends State<IslandScreen> {
             'position': pointToJson(position),
           }))
       ..onLocalGather = ((nodeId) => _send({'type': 'gather', 'nodeId': nodeId}))
-      ..onLocalCollect = ((buildingId) => _send({'type': 'collect', 'buildingId': buildingId}));
+      ..onLocalCollect = ((buildingId) => _send({'type': 'collect', 'buildingId': buildingId}))
+      ..onLocalAttack = ((animalId) => _send({'type': 'attack', 'animalId': animalId}));
 
     setState(() => _game = game);
     _syncHeldItem();
@@ -376,6 +377,10 @@ class _IslandScreenState extends State<IslandScreen> {
         );
       case 'hurt':
         _flashHurt();
+      case 'animalHurt':
+        game.hurtAnimal(event['animalId'] as int, event['health'] as int);
+      case 'animalKilled':
+        game.removeAnimal(event['animalId'] as int);
       case 'nodeAdded':
         await game.addNode(nodeFromJson(event['node'] as Map<String, dynamic>));
       case 'nodeRemoved':
@@ -752,12 +757,12 @@ class _IslandScreenState extends State<IslandScreen> {
                       builder: (context, inventory, _) => Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (inventory.held?.item == ItemType.berry)
+                          if (inventory.held != null && isFood(inventory.held!.item))
                             Padding(
                               padding: const EdgeInsets.only(bottom: 6),
                               child: FilledButton.icon(
                                 onPressed: _useHeld,
-                                icon: const ItemIcon(item: ItemType.berry, size: 20),
+                                icon: ItemIcon(item: inventory.held!.item, size: 20),
                                 label: const Text('Eat (E)'),
                               ),
                             ),

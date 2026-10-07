@@ -75,7 +75,12 @@ Your quick-access bar is always kept.
   red when you're bitten. You walk faster than a boar, it gives up if you
   get far enough away, and it can't reach you in a boat.
 - Everyone sees the same animals in the same places.
-- Hunting them comes next (spear and meat).
+- **Hunting:** hold a **spear** and tap an animal. If it's within reach you
+  strike, otherwise you walk up to it first. You can strike about once a
+  second. A rabbit takes one hit and gives **1 meat**; a boar takes three
+  and gives **3 meat**. A killing blow is refused if your bag has no room
+  for the meat, so none is wasted. Hunting works even while starving,
+  since it gets you food.
 - Values are in `backend/.../service/AnimalService.java` and
   `backend/.../model/AnimalType.java`.
 
@@ -98,8 +103,8 @@ Your quick-access bar is always kept.
 
 - The 🛠 button lists what you can make, showing what each recipe needs
   against what you have.
-- **Axe** and **hammer**, each from wood and stones
-  (`backend/.../model/Recipe.java`).
+- **Axe** and **hammer**, each from wood and stones, and a **spear** from
+  wood (`backend/.../model/Recipe.java`).
 - Crafting is instant and works anywhere. Missing ingredients or a full bag
   means nothing is used up.
 
@@ -109,13 +114,14 @@ Tools only do something **while held**:
 
 - **Axe:** chop trees.
 - **Hammer:** build anything, including boats.
-- **Spear:** planned, together with hunting (see [roadmap.md](roadmap.md)).
+- **Spear:** hunt animals (see *Animals*).
 
 ## Food, hunger and health
 
 - A **hunger bar** at the top left goes from full to empty over about 15
   minutes of play. It pauses while you're away, so time away doesn't count.
-- **Eat** by holding berries and pressing **Eat** (or **E**).
+- **Eat** by holding berries or meat and pressing **Eat** (or **E**). Meat
+  fills you up more than berries.
 - At 0 you're **starving**: you can still move and pick berries, but you
   can't gather wood, chop or build until you eat, and you **lose health**.
 - A **health bar** sits above it. Health slowly **comes back while you're

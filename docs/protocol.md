@@ -84,6 +84,8 @@ the stored wood up between updates.
 | `playerRespawned` | `userId, position` | someone died and came back on the home island (sent to them too) |
 | `animalAdded` | `animal` | a new animal appeared |
 | `animalMoved` | `animalId, movement, restingAt` | an animal set off somewhere, or stopped (`movement` is `null`, and it stands at `restingAt`) |
+| `animalHurt` | `animalId, health` | an animal was hit |
+| `animalKilled` | `animalId, byUserId` | an animal was hunted down; the hunter got its meat |
 
 The player who caused a `playerJoined`, `playerMoved`, `playerBoarded`,
 `boatMoved` or `playerLanded` event doesn't get it back. All the other
@@ -112,9 +114,10 @@ events go to everyone in the world, including whoever caused them.
 | `select` | `slot` | hold what's in quick-access slot 0–9 |
 | `moveItem` | `fromSlot, toSlot` | move, stack or swap in the inventory (slots 0–49) |
 | `discard` | `slot` | throw away a slot |
-| `use` | | use what you're holding: eat a held berry |
+| `use` | | use what you're holding: eat held berries or meat |
 | `craft` | `recipe` | e.g. `"AXE"` |
 | `collect` | `buildingId` | take the wood your lumberjack stored (stand next to it) |
+| `attack` | `animalId` | strike an animal with the spear you're holding (it must be within reach, at most about once a second) |
 
 After a reconnect, the client re-sends `join`, `select`, and `board` or
 `sail` or `move` for whatever it was doing.

@@ -2,6 +2,7 @@ package com.example.testproject.service;
 
 import com.example.testproject.live.LiveEvents;
 import com.example.testproject.live.WorldSessionRegistry;
+import com.example.testproject.model.ItemType;
 import com.example.testproject.model.PlayerVitals;
 import com.example.testproject.model.dto.PlayerStateDto;
 import com.example.testproject.repository.PlayerVitalsRepository;
@@ -22,6 +23,7 @@ public class PlayerVitalsService {
     /// From full to starving in 15 minutes of play.
     private static final double HUNGER_DRAIN_PER_SECOND = MAX_HUNGER / (15 * 60);
     private static final double HUNGER_PER_BERRY = 15;
+    private static final double HUNGER_PER_MEAT = 35;
 
     static final double MAX_HEALTH = 100;
     /// Health slowly comes back while you're well fed: empty to full in
@@ -119,10 +121,17 @@ public class PlayerVitalsService {
         }
     }
 
-    /// Eating a berry (already taken from the player's hand).
-    public synchronized PlayerVitals eatBerry(long worldId, long userId) {
+    /// Whether [item] can be eaten.
+    public static boolean isFood(ItemType item) {
+        return item == ItemType.BERRY || item == ItemType.MEAT;
+    }
+
+    /// Eating [food] (already taken from the player's hand). Meat fills you
+    /// up more than berries.
+    public synchronized PlayerVitals eat(long worldId, long userId, ItemType food) {
         PlayerVitals vitals = current(worldId, userId);
-        vitals.setHunger(Math.min(MAX_HUNGER, vitals.getHunger() + HUNGER_PER_BERRY));
+        double fills = food == ItemType.MEAT ? HUNGER_PER_MEAT : HUNGER_PER_BERRY;
+        vitals.setHunger(Math.min(MAX_HUNGER, vitals.getHunger() + fills));
         return playerVitalsRepository.save(vitals);
     }
 

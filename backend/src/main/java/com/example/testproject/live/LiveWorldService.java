@@ -22,6 +22,7 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +43,10 @@ public class LiveWorldService {
     /// huge path.
     private static final int MAX_PATH_POINTS = 50;
 
+    /// How close an animal has to be to hit it with a spear, and how often.
+    private static final double SPEAR_RANGE = 150;
+    private static final Duration ATTACK_COOLDOWN = Duration.ofSeconds(1);
+
     private final WorldSessionRegistry registry;
     private final WorldService worldService;
     private final ResourceNodeService resourceNodeService;
@@ -57,6 +62,9 @@ public class LiveWorldService {
     /// just starts at their stored destination.
     private final Map<String, Movement> playerMovements = new ConcurrentHashMap<>();
     private final Map<Long, Movement> boatMovements = new ConcurrentHashMap<>();
+
+    /// When each player last struck with their spear, for the cooldown.
+    private final Map<String, Instant> lastAttackAt = new ConcurrentHashMap<>();
 
     public LiveWorldService(
             WorldSessionRegistry registry,
@@ -200,20 +208,65 @@ public class LiveWorldService {
         inventoryService.sendTo(worldId, userId);
     }
 
-    /// Uses what the player is holding. For now that means eating a berry;
-    /// tools do their thing out in the world instead (chopping, building).
+    /// Uses what the player is holding. For now that means eating berries or
+    /// meat; tools do their thing out in the world instead (chopping,
+    /// building, hunting).
     public void use(WebSocketSession session) {
         long worldId = registry.worldIdOf(session);
         long userId = registry.userIdOf(session);
         requireJoined(session);
         ItemType held = inventoryService.held(worldId, userId);
-        if (held != ItemType.BERRY) {
+        if (held == null || !PlayerVitalsService.isFood(held)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     held == null ? "You're not holding anything" : "You can't use that here");
         }
         playerVitalsService.requireHungry(worldId, userId);
-        inventoryService.removeOneHeld(worldId, userId, ItemType.BERRY);
-        playerVitalsService.sendStateTo(playerVitalsService.eatBerry(worldId, userId));
+        inventoryService.removeOneHeld(worldId, userId, held);
+        playerVitalsService.sendStateTo(playerVitalsService.eat(worldId, userId, held));
+        inventoryService.sendTo(worldId, userId);
+    }
+
+    /// Hits an animal with the spear the player is holding. Killing it gives
+    /// its meat - but only if there's room, so none is wasted.
+    public synchronized void attack(WebSocketSession session, Long animalId) {
+        long worldId = registry.worldIdOf(session);
+        long userId = registry.userIdOf(session);
+        requireJoined(session);
+        requireNotNull(animalId, "animalId");
+        if (presenceOf(worldId, userId).getBoatId() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Land on the island first");
+        }
+        if (inventoryService.held(worldId, userId) != ItemType.SPEAR) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Hold a spear to hunt");
+        }
+        AnimalService.Animal animal = animalService.animal(worldId, animalId);
+        if (animal == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "It got away");
+        }
+        Instant now = Instant.now();
+        Point at = currentPositionOf(worldId, userId);
+        Point target = animal.positionAt(now);
+        if (Math.hypot(at.x() - target.x(), at.y() - target.y()) > SPEAR_RANGE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Too far away - get closer");
+        }
+        String playerKey = movementKey(worldId, userId);
+        Instant last = lastAttackAt.get(playerKey);
+        if (last != null && Duration.between(last, now).compareTo(ATTACK_COOLDOWN) < 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Still getting ready");
+        }
+        boolean killingBlow = animal.health() <= 1;
+        if (killingBlow && inventoryService.roomFor(worldId, userId, ItemType.MEAT) < animal.type().meat()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Make room in your bag first");
+        }
+
+        lastAttackAt.put(playerKey, now);
+        int health = animalService.hurt(worldId, animalId, 1);
+        if (health > 0) {
+            registry.broadcast(worldId, LiveEvents.animalHurt(animalId, health));
+            return;
+        }
+        inventoryService.add(worldId, userId, ItemType.MEAT, animal.type().meat());
+        registry.broadcast(worldId, LiveEvents.animalKilled(animalId, userId));
         inventoryService.sendTo(worldId, userId);
     }
 

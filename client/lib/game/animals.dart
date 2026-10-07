@@ -1,12 +1,14 @@
 import 'dart:ui';
 
 import 'package:flame/components.dart';
+import 'package:flame/events.dart';
 
 import '../island_game.dart';
 
 /// A rabbit or boar. It only goes where the server tells it to, along paths
 /// it simulates like everything else that moves.
-abstract class AnimalComponent extends PositionComponent with PathFollower {
+abstract class AnimalComponent extends PositionComponent
+    with PathFollower, TapCallbacks, HasGameReference<IslandGame> {
   final int id;
   final AnimalType type;
   int health;
@@ -40,6 +42,13 @@ abstract class AnimalComponent extends PositionComponent with PathFollower {
   void update(double dt) {
     super.update(dt);
     advanceAlongPath(dt);
+  }
+
+  @override
+  void onTapDown(TapDownEvent event) {
+    super.onTapDown(event);
+    event.continuePropagation = false;
+    game.requestAttack(this);
   }
 
   /// A small bar above it once it's been hurt.

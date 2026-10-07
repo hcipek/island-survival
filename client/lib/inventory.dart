@@ -5,7 +5,10 @@ import 'package:flutter/material.dart';
 /// Everything that can go in an inventory slot. Mirrors the server's
 /// `ItemType`. (Sticks on the ground, chopped trees and lumberjacks all
 /// give wood.)
-enum ItemType { stone, berry, wood, axe, hammer }
+enum ItemType { stone, berry, meat, wood, axe, hammer, spear }
+
+/// Items that can be eaten from the hand.
+bool isFood(ItemType item) => item == ItemType.berry || item == ItemType.meat;
 
 ItemType itemTypeFromJson(String value) => switch (value) {
   'STONE' => ItemType.stone,
@@ -13,6 +16,8 @@ ItemType itemTypeFromJson(String value) => switch (value) {
   'WOOD' => ItemType.wood,
   'AXE' => ItemType.axe,
   'HAMMER' => ItemType.hammer,
+  'MEAT' => ItemType.meat,
+  'SPEAR' => ItemType.spear,
   _ => throw Exception('Unknown item: $value'),
 };
 
@@ -22,6 +27,8 @@ String itemName(ItemType item) => switch (item) {
   ItemType.wood => 'Wood',
   ItemType.axe => 'Axe',
   ItemType.hammer => 'Hammer',
+  ItemType.meat => 'Meat',
+  ItemType.spear => 'Spear',
 };
 
 /// The inventory's look: warm browns, so slots stand out clearly whatever
@@ -491,6 +498,19 @@ class _ItemPainter extends CustomPainter {
           Radius.circular(w * 0.05),
         );
         canvas.drawRRect(head, Paint()..color = grey);
+      case ItemType.spear:
+        canvas.drawLine(Offset(w * 0.15, w * 0.85), Offset(w * 0.72, w * 0.28), stroke(brown, 0.08));
+        final tip = Path()
+          ..moveTo(w * 0.9, w * 0.1)
+          ..lineTo(w * 0.62, w * 0.24)
+          ..lineTo(w * 0.76, w * 0.38)
+          ..close();
+        canvas.drawPath(tip, Paint()..color = grey);
+      case ItemType.meat:
+        canvas.drawLine(Offset(w * 0.25, w * 0.78), Offset(w * 0.45, w * 0.58), stroke(const Color(0xFFFFF8E1), 0.1));
+        canvas.drawCircle(Offset(w * 0.2, w * 0.82), w * 0.07, Paint()..color = const Color(0xFFFFF8E1));
+        canvas.drawOval(Rect.fromLTWH(w * 0.38, w * 0.18, w * 0.48, w * 0.48), Paint()..color = const Color(0xFFC62828));
+        canvas.drawOval(Rect.fromLTWH(w * 0.5, w * 0.28, w * 0.2, w * 0.16), Paint()..color = const Color(0xFFEF9A9A));
     }
   }
 

@@ -142,6 +142,16 @@ public final class LiveEvents {
         return event("animalMoved", "animalId", animalId, "movement", movement(movement), "restingAt", restingAt);
     }
 
+    /// An animal was hit and has [health] left.
+    public static Map<String, Object> animalHurt(long animalId, int health) {
+        return event("animalHurt", "animalId", animalId, "health", health);
+    }
+
+    /// An animal was hunted down by [byUserId] (who got its meat).
+    public static Map<String, Object> animalKilled(long animalId, long byUserId) {
+        return event("animalKilled", "animalId", animalId, "byUserId", byUserId);
+    }
+
     /// Only to the player who got hurt, e.g. by a boar.
     public static Map<String, Object> hurt(double amount, String by) {
         return event("hurt", "amount", amount, "by", by);
