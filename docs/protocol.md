@@ -16,9 +16,10 @@ Base URL: `http://<host>:8080`. Errors come back with a 4xx status and
 |---|---|---|
 | `GET /api/users` | | `[{id, name, color, playing}]`: `playing` means someone is in the game as that user |
 | `POST /api/users` | `{name}` | the new user |
-| `GET /api/worlds` | | `[{id, name, createdAt, settings: {animalAggression, inventoryOnDeath}}]` |
+| `GET /api/worlds` | | `[{id, name, createdAt, settings: {animalAggression, inventoryOnDeath}, started, playing: [user]}]`: `started` means someone has played there (its settings are then fixed), and `playing` is who is in it right now |
 | `POST /api/worlds` | `{name, animalAggression?, inventoryOnDeath?}` | the new world (its islands and resource spots are made right away). `inventoryOnDeath` is `KEEP`, `DROP` or `LOSE`; left out, the defaults are `true` and `DROP` |
-| `DELETE /api/worlds/{worldId}` | | deletes the world and everything in it |
+| `PUT /api/worlds/{worldId}/settings` | `{animalAggression?, inventoryOnDeath?}` | the world with its new settings. Only until it has started; afterwards `409` |
+| `DELETE /api/worlds/{worldId}` | | deletes the world and everything in it. `409` while anyone is connected to it |
 | `GET /api/worlds/{worldId}/islands` | | `[{id, centerX, centerY, radius, isHome}]` (never changes) |
 | `POST /api/worlds/{worldId}/buildings` | `{type, x, y, ownerId}` | the building. Needs a held hammer, the right ground and the cost |
 | `DELETE /api/worlds/{worldId}/buildings/{id}?userId=` | | owner only |

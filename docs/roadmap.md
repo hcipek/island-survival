@@ -16,6 +16,8 @@
   split into smaller files
 - **Hunting and health:** world settings, health and dying (with the bag
   kept, dropped or lost), rabbits and boars, spear and meat
+- **Welcome screen in two steps:** user, then world, with each world's
+  settings and who's playing; settings editable until a world starts
 
 ## Recently finished: hunting and health
 

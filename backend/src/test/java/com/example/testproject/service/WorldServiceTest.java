@@ -6,11 +6,13 @@ import com.example.testproject.model.InventoryOnDeath;
 import com.example.testproject.model.ItemType;
 import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
+import com.example.testproject.model.dto.WorldDto;
 import com.example.testproject.model.dto.WorldSettingsDto;
 import com.example.testproject.model.req.BuildingRequest;
 import com.example.testproject.model.req.CreateBoatRequest;
 import com.example.testproject.model.req.CreateUserRequest;
 import com.example.testproject.model.req.CreateWorldRequest;
+import com.example.testproject.model.req.WorldSettingsRequest;
 import com.example.testproject.repository.BoatRepository;
 import com.example.testproject.repository.BuildingRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -105,6 +107,40 @@ class WorldServiceTest {
         WorldSettingsDto settings = worldService.getWorld(peaceful).settings();
         assertThat(settings.animalAggression()).isFalse();
         assertThat(settings.inventoryOnDeath()).isEqualTo(InventoryOnDeath.KEEP);
+    }
+
+    @Test
+    void aNewWorldHasNotStartedAndItsSettingsCanStillChange() {
+        assertThat(worldService.getWorld(worldId).started()).isFalse();
+
+        WorldDto changed = worldService.updateSettings(worldId, new WorldSettingsRequest(false, "LOSE"));
+
+        assertThat(changed.settings().animalAggression()).isFalse();
+        assertThat(changed.settings().inventoryOnDeath()).isEqualTo(InventoryOnDeath.LOSE);
+    }
+
+    @Test
+    void settingsLeftOutStayAsTheyAre() {
+        worldService.updateSettings(worldId, new WorldSettingsRequest(null, "KEEP"));
+
+        WorldSettingsDto settings = worldService.getWorld(worldId).settings();
+        assertThat(settings.animalAggression()).isTrue();
+        assertThat(settings.inventoryOnDeath()).isEqualTo(InventoryOnDeath.KEEP);
+    }
+
+    @Test
+    void onceAWorldHasStartedItsSettingsAreFixed() {
+        worldService.markStarted(worldId);
+
+        assertThat(worldService.getWorld(worldId).started()).isTrue();
+        assertStatus(HttpStatus.CONFLICT,
+                () -> worldService.updateSettings(worldId, new WorldSettingsRequest(false, null)));
+        assertThat(worldService.getWorld(worldId).settings().animalAggression()).isTrue();
+    }
+
+    @Test
+    void nobodyIsPlayingInANewWorld() {
+        assertThat(worldService.getWorld(worldId).playing()).isEmpty();
     }
 
     @Test

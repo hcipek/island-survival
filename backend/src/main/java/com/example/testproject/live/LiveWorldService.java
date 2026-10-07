@@ -172,6 +172,7 @@ public class LiveWorldService {
 
         boolean alreadyHereInAnotherTab = registry.joinedUserIds(worldId).contains(userId);
         registry.markJoined(session);
+        worldService.markStarted(worldId); // its settings are fixed from now on
         registry.broadcastExcept(worldId, session, LiveEvents.playerJoined(playerView(presence)));
 
         if (alreadyHereInAnotherTab) {

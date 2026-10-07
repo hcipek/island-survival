@@ -1,5 +1,7 @@
 package com.example.testproject.config;
 
+import com.example.testproject.model.req.CreateWorldRequest;
+import com.example.testproject.service.WorldService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -19,6 +21,9 @@ class TypeColumnsTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private WorldService worldService;
 
     @Test
     void typeColumnsArePlainTextSoNewValuesFit() {
@@ -56,6 +61,24 @@ class TypeColumnsTest {
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT item FROM inventory_slot WHERE world_id = 1 AND user_id = 1 AND slot_index = 7", String.class))
                 .isEqualTo("WOOD");
+    }
+
+    @Test
+    void cleanupMarksWorldsSomeoneHasPlayedInAsStarted() throws Exception {
+        long played = worldService.createWorld(new CreateWorldRequest("Played before")).id();
+        long untouched = worldService.createWorld(new CreateWorldRequest("Never played")).id();
+        jdbcTemplate.update("INSERT INTO player_presence (world_id, user_id, x, y) VALUES (?, 1, 0, 0)", played);
+
+        new LegacySchemaCleanup(jdbcTemplate).run(null);
+
+        // Checked in the database itself: the cleanup works there, below
+        // Hibernate (which in this test still has the worlds cached).
+        assertThat(startedAt(played)).isNotNull();
+        assertThat(startedAt(untouched)).isNull();
+    }
+
+    private Object startedAt(long worldId) {
+        return jdbcTemplate.queryForObject("SELECT started_at FROM world WHERE id = ?", Object.class, worldId);
     }
 
     private String dataType(String table, String column) {

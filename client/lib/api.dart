@@ -66,13 +66,30 @@ class WorldData {
   final String name;
   final WorldSettings settings;
 
-  WorldData({required this.id, required this.name, this.settings = const WorldSettings()});
+  /// Someone has played in it. Until then its settings can be changed.
+  final bool started;
+
+  /// Who is in it right now.
+  final List<UserData> playing;
+
+  WorldData({
+    required this.id,
+    required this.name,
+    this.settings = const WorldSettings(),
+    this.started = false,
+    this.playing = const [],
+  });
 
   factory WorldData.fromJson(Map<String, dynamic> json) {
     return WorldData(
       id: json['id'] as int,
       name: json['name'] as String,
       settings: WorldSettings.fromJson(json['settings'] as Map<String, dynamic>?),
+      started: json['started'] as bool? ?? false,
+      playing: [
+        for (final user in json['playing'] as List<dynamic>? ?? const [])
+          UserData.fromJson(user as Map<String, dynamic>),
+      ],
     );
   }
 }
@@ -152,6 +169,22 @@ class IslandApi {
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'name': name,
+        'animalAggression': settings.animalAggression,
+        'inventoryOnDeath': settings.inventoryOnDeath.name.toUpperCase(),
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessage(response));
+    }
+    return WorldData.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  /// Changes the settings of a world nobody has played in yet.
+  Future<WorldData> updateWorldSettings(int worldId, WorldSettings settings) async {
+    final response = await http.put(
+      Uri.parse('$_baseUrl/api/worlds/$worldId/settings'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
         'animalAggression': settings.animalAggression,
         'inventoryOnDeath': settings.inventoryOnDeath.name.toUpperCase(),
       }),

@@ -20,6 +20,11 @@ import com.example.testproject.service.UserService;
 import com.example.testproject.service.WorldService;
 import jakarta.websocket.ContainerProvider;
 import jakarta.websocket.WebSocketContainer;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+import com.example.testproject.model.dto.UserDto;
+import com.example.testproject.model.dto.WorldDto;
+import com.example.testproject.model.req.WorldSettingsRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,6 +46,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
 /// End-to-end tests of the world socket: a real server on a random port,
@@ -713,6 +719,43 @@ class LiveWorldTest {
     }
 
     @Test
+    void joiningStartsTheWorldAndShowsWhoIsPlaying() throws Exception {
+        assertThat(worldService.getWorld(worldId).started()).isFalse();
+
+        connectAndJoin(aliceId);
+
+        WorldDto world = worldService.getWorld(worldId);
+        assertThat(world.started()).isTrue();
+        assertThat(world.playing()).extracting(UserDto::id).containsExactly(aliceId);
+        assertStatus(HttpStatus.CONFLICT,
+                () -> worldService.updateSettings(worldId, new WorldSettingsRequest(false, null)));
+    }
+
+    @Test
+    void justLookingDoesNotStartAWorld() throws Exception {
+        connect(aliceId).expect("snapshot"); // connected, but never joined
+
+        assertThat(worldService.getWorld(worldId).started()).isFalse();
+    }
+
+    @Test
+    void aWorldCannotBeDeletedWhileSomeoneIsInIt() throws Exception {
+        TestClient alice = connectAndJoin(aliceId);
+
+        assertStatus(HttpStatus.CONFLICT, () -> worldService.deleteWorld(worldId));
+
+        alice.session.close();
+        awaitNotPlaying(aliceId);
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (registry.hasConnections(worldId)) {
+            assertThat(System.currentTimeMillis()).isLessThan(deadline);
+            Thread.sleep(10);
+        }
+        worldService.deleteWorld(worldId);
+        assertThat(worldService.listWorlds()).noneMatch(w -> w.id() == worldId);
+    }
+
+    @Test
     void onlyOneTabCanPlayAsAUserAtATime() throws Exception {
         TestClient alice = connectAs(worldId, aliceId, "tab-1");
         alice.expect("snapshot");
@@ -806,6 +849,12 @@ class LiveWorldTest {
     /// the bag.
     private void fillQuickAccessBarWithAxes(long worldId, long userId) {
         inventoryService.add(worldId, userId, ItemType.AXE, 10);
+    }
+
+    private static void assertStatus(HttpStatus expected, Runnable action) {
+        assertThatThrownBy(action::run)
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        e -> assertThat(e.getStatusCode()).isEqualTo(expected));
     }
 
     private void awaitClosed(TestClient client) throws InterruptedException {

@@ -5,10 +5,21 @@ the game gets tuned, so this page names the rules and points to where each
 value lives in the code. For *why* things work this way, see
 [decisions.md](decisions.md).
 
+## The welcome screen
+
+Two steps:
+
+1. **Who are you?** Pick or create a user. Users someone is already playing
+   as are greyed out.
+2. **Choose a world.** Each world shows its settings and its status: *not
+   started yet*, *nobody playing*, or who is in it right now (refreshed
+   every few seconds). From there you can **Enter**, **Edit settings** (only
+   until the world starts), **Delete** (not while anyone is in it), or
+   create a new world. **Change** goes back to step 1.
+
 ## The world
 
-- A **world** is one independent save. Players pick a user and a world on
-  the welcome screen.
+- A **world** is one independent save.
 - Each world has a **home island** at the center, where everyone starts,
   and a few smaller **outer islands** further out. The layout is made once,
   when the world is created (`WorldService.generateIslands`).
@@ -20,9 +31,8 @@ value lives in the code. For *why* things work this way, see
 
 ## World settings
 
-Chosen in a dialog when a world is created. **They can't be changed
-afterwards.** Hover over a world on the welcome screen to see its
-settings.
+Chosen in a dialog when a world is created, and **changeable until
+someone first plays in it**. After that they're fixed for good.
 
 | Setting | Options | Default |
 |---|---|---|

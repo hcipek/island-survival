@@ -11,7 +11,9 @@ import com.example.testproject.model.dto.WorldDto;
 import com.example.testproject.model.dto.PlayerStateDto;
 import com.example.testproject.model.req.BuildingRequest;
 import com.example.testproject.model.req.CreateBoatRequest;
+import com.example.testproject.model.dto.UserDto;
 import com.example.testproject.model.req.CreateWorldRequest;
+import com.example.testproject.model.req.WorldSettingsRequest;
 import com.example.testproject.repository.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -20,7 +22,9 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.Random;
 
 /// Owns everything scoped to a single [World]: its island layout (generated
@@ -95,7 +99,46 @@ public class WorldService {
     }
 
     public List<WorldDto> listWorlds() {
-        return worldRepository.findAll().stream().map(WorldDto::from).toList();
+        return worldRepository.findAll().stream().map(this::toWorldDto).toList();
+    }
+
+    private WorldDto toWorldDto(World world) {
+        List<UserDto> playing = sessionRegistry.joinedUserIds(world.getId()).stream()
+                .map(userRepository::findById)
+                .flatMap(Optional::stream)
+                .map(user -> UserDto.from(user, true))
+                .sorted(Comparator.comparing(UserDto::name))
+                .toList();
+        return WorldDto.from(world, playing);
+    }
+
+    /// Changes the settings of a world nobody has played in yet. Once it's
+    /// started they're fixed, so the rules can't change mid-game.
+    ///
+    /// Synchronized with [markStarted], so an edit and someone entering at
+    /// the same moment can't both win.
+    public synchronized WorldDto updateSettings(long worldId, WorldSettingsRequest request) {
+        World world = getWorldOrThrow(worldId);
+        if (world.getStartedAt() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This world has already started - its settings can't change any more");
+        }
+        if (request.animalAggression() != null) {
+            world.setAnimalAggression(request.animalAggression());
+        }
+        if (request.inventoryOnDeath() != null) {
+            world.setInventoryOnDeath(parseInventoryOnDeath(request.inventoryOnDeath()));
+        }
+        return toWorldDto(worldRepository.save(world));
+    }
+
+    /// The first time someone plays in a world, it counts as started.
+    public synchronized void markStarted(long worldId) {
+        World world = getWorldOrThrow(worldId);
+        if (world.getStartedAt() == null) {
+            world.setStartedAt(Instant.now());
+            worldRepository.save(world);
+        }
     }
 
     public WorldDto createWorld(CreateWorldRequest request) {
@@ -111,10 +154,17 @@ public class WorldService {
         generateIslands(world.getId());
         resourceNodeService.ensureNodes(world.getId());
 
-        return WorldDto.from(world);
+        return toWorldDto(world);
     }
 
+    /// Deletes a world and everything in it - but not while anyone is in it,
+    /// so nobody gets cut off mid-game.
     public void deleteWorld(long worldId) {
+        getWorldOrThrow(worldId);
+        if (sessionRegistry.hasConnections(worldId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Someone is playing in this world - it can be deleted once everyone has left");
+        }
         buildingRepository.deleteAll(buildingRepository.findAllByWorldId(worldId));
         boatRepository.deleteAll(boatRepository.findAllByWorldId(worldId));
         worldIslandRepository.deleteAll(worldIslandRepository.findAllByWorldId(worldId));
@@ -152,7 +202,7 @@ public class WorldService {
     }
 
     public WorldDto getWorld(long worldId) {
-        return WorldDto.from(getWorldOrThrow(worldId));
+        return toWorldDto(getWorldOrThrow(worldId));
     }
 
     private static InventoryOnDeath parseInventoryOnDeath(String value) {

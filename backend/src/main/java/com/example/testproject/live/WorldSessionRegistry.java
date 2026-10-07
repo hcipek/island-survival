@@ -136,6 +136,12 @@ public class WorldSessionRegistry {
                 .collect(Collectors.toSet());
     }
 
+    /// Whether anyone is connected to [worldId] at all (joined or not).
+    public boolean hasConnections(long worldId) {
+        Set<WebSocketSession> sessions = sessionsByWorld.get(worldId);
+        return sessions != null && sessions.stream().anyMatch(WebSocketSession::isOpen);
+    }
+
     /// Worlds with at least one player in them right now.
     public Set<Long> activeWorldIds() {
         return sessionsByWorld.entrySet().stream()

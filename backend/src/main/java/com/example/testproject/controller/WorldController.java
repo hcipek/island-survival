@@ -7,11 +7,13 @@ import com.example.testproject.model.dto.WorldDto;
 import com.example.testproject.model.req.BuildingRequest;
 import com.example.testproject.model.req.CreateBoatRequest;
 import com.example.testproject.model.req.CreateWorldRequest;
+import com.example.testproject.model.req.WorldSettingsRequest;
 import com.example.testproject.service.WorldService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,6 +37,11 @@ public class WorldController {
     @PostMapping("/api/worlds")
     public WorldDto createWorld(@RequestBody CreateWorldRequest request) {
         return worldService.createWorld(request);
+    }
+
+    @PutMapping("/api/worlds/{worldId}/settings")
+    public WorldDto updateSettings(@PathVariable long worldId, @RequestBody WorldSettingsRequest request) {
+        return worldService.updateSettings(worldId, request);
     }
 
     @DeleteMapping("/api/worlds/{worldId}")

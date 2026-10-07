@@ -258,7 +258,7 @@ lumberjack. There's no separate sticks item. Recipes use wood.
 resource, rather than each source having its own item.
 
 ### D22. World settings, chosen once when a world is created
-*2026-10-07*
+*2026-10-07 · **partly superseded by D26**: settings are now fixed once the world starts, not once it's created*
 
 A world has settings picked when it's created: **animal aggression** (on or
 off) and **what happens to your bag when you die** (kept, dropped as a
@@ -336,4 +336,25 @@ the spear stays in your hand, as the user said.
 all-or-nothing rule as gathering (D14), so nothing is wasted.
 **Hunting is allowed while starving**, like picking berries (D9), because
 it's a way to get food.
+
+### D26. Two-step welcome screen; settings fixed once a world starts
+*2026-10-07*
+
+The welcome screen is two steps: pick who you are, then pick a world.
+Each world shows its settings and who is playing in it. A world counts
+as **started** the first time someone joins it (`startedAt`), and its
+settings can be edited until then. Worlds that had been played before
+this existed count as started (the start-up cleanup looks for a stored
+player position).
+
+**Why:** the user's idea. With settings and players in every world, a
+single screen was getting crowded, and "fixed once created" made fixing
+a wrong choice impossible even though nobody had played there yet.
+**Who can edit:** anyone, for now; worlds have no owner. With login, this
+becomes "only the creator".
+**Clashes:** editing settings and someone entering for the first time are
+handled one at a time on the server, so an edit can't slip in after the
+world has started.
+**Deleting** a world is refused while anyone is connected to it, so
+nobody gets cut off mid-game.
 

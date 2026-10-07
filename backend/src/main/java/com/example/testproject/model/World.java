@@ -27,6 +27,10 @@ public class World {
     /// have dropped in between can be added. Null if never.
     private Instant lastActiveAt;
 
+    /// When someone first played in this world. Until then its settings can
+    /// still be changed; null means it hasn't started yet.
+    private Instant startedAt;
+
     /// World settings, chosen when the world is created (see
     /// [com.example.testproject.model.dto.WorldSettingsDto]). The defaults
     /// apply to worlds made before settings existed.
@@ -57,6 +61,22 @@ public class World {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Instant getStartedAt() {
+        return startedAt;
+    }
+
+    public void setStartedAt(Instant startedAt) {
+        this.startedAt = startedAt;
+    }
+
+    public void setAnimalAggression(boolean animalAggression) {
+        this.animalAggression = animalAggression;
+    }
+
+    public void setInventoryOnDeath(InventoryOnDeath inventoryOnDeath) {
+        this.inventoryOnDeath = inventoryOnDeath.name();
     }
 
     public boolean isAnimalAggression() {

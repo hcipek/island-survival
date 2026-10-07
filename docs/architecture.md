@@ -32,8 +32,10 @@ server tells it which paths to follow). See D1, D3 and D4 in
 
 ## How a session flows
 
-1. **Welcome screen:** REST `GET /api/users` and `GET /api/worlds`. The user
-   list refreshes every few seconds to show who's playing.
+1. **Welcome screen:** pick a user, then a world, both from REST
+   (`GET /api/users`, `GET /api/worlds`), refreshed every few seconds to
+   show who's playing where. Settings of a world that hasn't started yet
+   can be changed there (`PUT /api/worlds/{id}/settings`).
 2. **Entering a world:** REST `GET /api/worlds/{id}/islands` (the layout,
    which never changes), then the WebSocket connects.
 3. **Snapshot:** the server sends everything needed to draw the world:
