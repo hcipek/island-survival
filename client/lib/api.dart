@@ -85,7 +85,9 @@ class WorldData {
       id: json['id'] as int,
       name: json['name'] as String,
       settings: WorldSettings.fromJson(json['settings'] as Map<String, dynamic>?),
-      started: json['started'] as bool? ?? false,
+      // Missing means an older backend, which can't edit settings at all -
+      // so don't offer it.
+      started: json['started'] as bool? ?? true,
       playing: [
         for (final user in json['playing'] as List<dynamic>? ?? const [])
           UserData.fromJson(user as Map<String, dynamic>),

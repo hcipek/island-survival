@@ -15,5 +15,7 @@ void main() {
     final older = WorldData.fromJson({'id': 2, 'name': 'Homeland'});
     expect(older.settings.animalAggression, isTrue);
     expect(older.settings.inventoryOnDeath, InventoryOnDeath.drop);
+    // An older backend can't change settings, so editing isn't offered.
+    expect(older.started, isTrue);
   });
 }
