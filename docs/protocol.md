@@ -49,6 +49,7 @@ reconnect.
 | `recipes` | `[{id, output, ingredients: [{item, quantity}]}]` |
 | `you` | where you were when you last left: `{x, y, boatId}`, or `null` the first time |
 | `world` | `{id, name, createdAt, settings}`, as in `GET /api/worlds` |
+| `animals` | `[{id, type, x, y, health, maxHealth, speed, movement}]`. `type` is `RABBIT` or `BOAR`, and clients move animals at the `speed` given |
 | `buildings` | `[building]` (see below) |
 | `boats` | `[{id, ownerId, x, y, movement}]` |
 | `players` | other players in the world: `[{userId, username, color, x, y, boatId, movement}]` |
@@ -81,6 +82,8 @@ the stored wood up between updates.
 | `nodeAdded` | `node` | sticks or stones dropped |
 | `nodeRemoved` | `nodeId` | sticks, stones or a whole item pile were picked up, or a pile expired |
 | `playerRespawned` | `userId, position` | someone died and came back on the home island (sent to them too) |
+| `animalAdded` | `animal` | a new animal appeared |
+| `animalMoved` | `animalId, movement, restingAt` | an animal set off somewhere, or stopped (`movement` is `null`, and it stands at `restingAt`) |
 
 The player who caused a `playerJoined`, `playerMoved`, `playerBoarded`,
 `boatMoved` or `playerLanded` event doesn't get it back. All the other
@@ -92,6 +95,7 @@ events go to everyone in the world, including whoever caused them.
 |---|---|---|
 | `state` | `state: {hunger, hungerDrainPerSecond, health, healthChangePerSecond}` | on joining, after eating, and every 2 s while in the world. The client counts both between updates |
 | `youDied` | `cause, bag, pileId` | you died. `bag` is `KEPT`, `DROPPED` (into item pile `pileId`), `LOST` or `EMPTY` |
+| `hurt` | `amount, by` | something hurt you, e.g. `by: "BOAR"`. Your new health follows in a `state` |
 | `inventory` | `inventory: {slots: [{slot, item, quantity}], selectedSlot, hotbarSize, bagSize}` | after anything changes it |
 | `error` | `message` | something you sent was refused |
 

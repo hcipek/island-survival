@@ -15,7 +15,7 @@ flowchart LR
         Socket["WorldSocketHandler<br/>/ws/worlds/{id}"]
         Services["Services<br/>the game rules"]
         Registry["WorldSessionRegistry<br/>who's connected"]
-        Ticker["WorldTicker<br/>every 2 s and 20 s"]
+        Ticker["WorldTicker<br/>every 0.5 s, 2 s and 20 s"]
         DB[("H2 file<br/>backend/data")]
     end
     UI --> Api --> Rest --> Services
@@ -61,7 +61,7 @@ The full message list is in [protocol.md](protocol.md).
 |---|---|
 | `controller` | REST endpoints and the JSON error format (`ApiExceptionHandler`) |
 | `live` | The WebSocket: `WorldSocketHandler` (reads messages), `LiveWorldService` (joining, moving, boarding, gathering and similar actions), `WorldSessionRegistry` (connections, broadcasting, the one-tab-per-user claim), `LiveEvents` (the messages the server sends), `WorldTicker` (the background tick) |
-| `service` | The rules: `WorldService` (worlds, islands, buildings, boats, lumberjacks), `ResourceNodeService` (spots, gathering, drops and catch-up), `InventoryService`, `CraftingService`, `PlayerVitalsService` (hunger), `UserService` |
+| `service` | The rules: `WorldService` (worlds, islands, buildings, boats, lumberjacks), `ResourceNodeService` (spots, gathering, drops and catch-up, item piles), `AnimalService` (animals and how they behave), `InventoryService`, `CraftingService`, `PlayerVitalsService` (hunger and health), `UserService` |
 | `model` | JPA entities, plus `dto` (what's sent) and `req` (what's received) |
 | `repository` | Spring Data repositories |
 | `config` | CORS and WebSocket setup, scheduling, and `LegacySchemaCleanup` (see D13) |
@@ -70,9 +70,12 @@ Things worth knowing:
 - **Nothing ticks per player.** Hunger, health, lumberjack storage and
   regrowth are calculated from timestamps when read (D12). Only
   `WorldTicker` runs on a schedule, for worlds someone is playing in:
-  every 2 s it brings players' vitals up to date (and notices deaths), and
-  every 20 s it drops loose items and removes expired item piles. Tests
-  switch it off (`game.ticks.enabled: false`).
+  every 0.5 s the animals decide what to do, every 2 s players' vitals are
+  brought up to date (and deaths noticed), and every 20 s loose items and
+  animals appear and expired item piles are removed. Tests switch it off
+  (`game.ticks.enabled: false`) and call the ticks directly.
+- **Animals** live in memory only (`AnimalService`), not in the database
+  (D24).
 - **Errors** are thrown as `ResponseStatusException` with a readable
   reason. REST returns it as `{"message": ...}`, and the socket sends it as
   an `error` event to that player only.

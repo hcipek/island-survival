@@ -298,3 +298,26 @@ things felt harsh for now. All of them are easy to change.
 **Starving** still blocks building and wood gathering as before (D9), and
 now it costs health as well.
 
+### D24. Animals are controlled by the server and live in memory
+*2026-10-07*
+
+Rabbits and boars are placed on the islands, with none of the dangerous
+ones on the home island, and the server decides what each one does twice
+a second. Rabbits wander and run from players on foot. Boars wander, and
+in worlds with animal aggression on they chase a player on foot on their
+island, bite when they catch up (with a cooldown), and give up when the
+player gets away or is in a boat. Their walks are sent as movement
+intents with their speed, and clients simulate them (D4).
+
+**Why server-side:** everyone has to see the same animal in the same
+place, and a bite is a rule (D1).
+**Why in memory:** animals change direction several times a second.
+Writing that to the database would be a lot of churn for state nobody
+needs to keep. After a server restart, animals are simply placed again
+when someone enters the world.
+**Why the speed is sent:** so the client doesn't need its own copy of
+every animal's speed (players' and boats' speeds are still duplicated
+on both sides; see `Movement.PLAYER_SPEED`).
+**Balance:** players walk faster than boars, so you can always escape.
+The numbers are in `AnimalService` and `AnimalType`.
+

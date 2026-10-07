@@ -206,6 +206,7 @@ class _IslandScreenState extends State<IslandScreen> {
       existingBoats: listFromJson(snapshot['boats'], boatFromJson),
       existingPlayers: listFromJson(snapshot['players'], playerFromJson),
       existingNodes: listFromJson(snapshot['nodes'], nodeFromJson),
+      existingAnimals: listFromJson(snapshot['animals'] ?? const [], animalFromJson),
       startPosition: lastPosition?.position,
       startBoatId: lastPosition?.boatId,
       userId: widget.userId,
@@ -264,6 +265,16 @@ class _IslandScreenState extends State<IslandScreen> {
     Navigator.of(context).pop();
   }
 
+  /// Briefly tints the screen red when you get hurt.
+  bool _hurtFlash = false;
+
+  void _flashHurt() {
+    setState(() => _hurtFlash = true);
+    Future.delayed(const Duration(milliseconds: 250), () {
+      if (mounted) setState(() => _hurtFlash = false);
+    });
+  }
+
   void _showDeath(String cause, String bag) {
     if (!mounted) return;
     final bagText = switch (bag) {
@@ -306,6 +317,7 @@ class _IslandScreenState extends State<IslandScreen> {
         await game.applyBoats(listFromJson(event['boats'], boatFromJson));
         await game.applyRemotePlayers(listFromJson(event['players'], playerFromJson));
         await game.applyNodes(listFromJson(event['nodes'], nodeFromJson));
+        await game.applyAnimals(listFromJson(event['animals'] ?? const [], animalFromJson));
         _join(game);
       case 'state':
         _setPlayerState(event['state']);
@@ -354,6 +366,16 @@ class _IslandScreenState extends State<IslandScreen> {
           event['nodeId'] as int,
           Duration(milliseconds: (event['regrowsInMs'] as num).toInt()),
         );
+      case 'animalAdded':
+        await game.addAnimal(animalFromJson(event['animal'] as Map<String, dynamic>));
+      case 'animalMoved':
+        game.moveAnimal(
+          event['animalId'] as int,
+          movementFromJson(event['movement'] as Map<String, dynamic>?),
+          pointFromJson(event['restingAt'] as Map<String, dynamic>),
+        );
+      case 'hurt':
+        _flashHurt();
       case 'nodeAdded':
         await game.addNode(nodeFromJson(event['node'] as Map<String, dynamic>));
       case 'nodeRemoved':
@@ -666,6 +688,15 @@ class _IslandScreenState extends State<IslandScreen> {
           : Stack(
               children: [
                 Positioned.fill(child: GameWidget(game: game)),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedOpacity(
+                      opacity: _hurtFlash ? 1 : 0,
+                      duration: const Duration(milliseconds: 150),
+                      child: Container(color: const Color(0x55D50000)),
+                    ),
+                  ),
+                ),
                 if (_error != null)
                   Positioned.fill(
                     child: Container(

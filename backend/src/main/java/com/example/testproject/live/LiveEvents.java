@@ -1,5 +1,6 @@
 package com.example.testproject.live;
 
+import com.example.testproject.model.AnimalType;
 import com.example.testproject.model.ResourceNodeType;
 import com.example.testproject.model.dto.BoatDto;
 import com.example.testproject.model.dto.BuildingDto;
@@ -26,11 +27,13 @@ public final class LiveEvents {
             Map<String, Object> inventory,
             List<Map<String, Object>> recipes,
             Map<String, Object> you,
-            WorldDto world
+            WorldDto world,
+            List<Map<String, Object>> animals
     ) {
         return event(
                 "snapshot", "state", state, "buildings", buildings, "boats", boats, "players", players,
-                "nodes", nodes, "inventory", inventory, "recipes", recipes, "you", you, "world", world
+                "nodes", nodes, "inventory", inventory, "recipes", recipes, "you", you, "world", world,
+                "animals", animals
         );
     }
 
@@ -116,6 +119,32 @@ public final class LiveEvents {
     /// was nothing in it.
     public static Map<String, Object> youDied(String cause, String bag, Long pileId) {
         return event("youDied", "cause", cause, "bag", bag, "pileId", pileId);
+    }
+
+    /// An animal as clients draw it: where it is, how hurt it is, how fast
+    /// it moves, and the walk it's on (if any).
+    public static Map<String, Object> animal(
+            long id, AnimalType type, double x, double y, int health, int maxHealth, double speed, Movement movement
+    ) {
+        return fields(
+                "id", id, "type", type, "x", x, "y", y, "health", health, "maxHealth", maxHealth,
+                "speed", speed, "movement", movement(movement)
+        );
+    }
+
+    public static Map<String, Object> animalAdded(Map<String, Object> animal) {
+        return event("animalAdded", "animal", animal);
+    }
+
+    /// An animal set off somewhere new (or stopped: [movement] then ends
+    /// where it is).
+    public static Map<String, Object> animalMoved(long animalId, Movement movement, Point restingAt) {
+        return event("animalMoved", "animalId", animalId, "movement", movement(movement), "restingAt", restingAt);
+    }
+
+    /// Only to the player who got hurt, e.g. by a boar.
+    public static Map<String, Object> hurt(double amount, String by) {
+        return event("hurt", "amount", amount, "by", by);
     }
 
     public static Map<String, Object> error(String message) {

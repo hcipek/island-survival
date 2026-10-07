@@ -151,6 +151,23 @@ ResourceNodeRecord nodeFromJson(Map<String, dynamic> json) {
   return (position: pointFromJson(json), boatId: json['boatId'] as int?);
 }
 
+AnimalRecord animalFromJson(Map<String, dynamic> json) {
+  return AnimalRecord(
+    id: json['id'] as int,
+    type: switch (json['type'] as String) {
+      'RABBIT' => AnimalType.rabbit,
+      'BOAR' => AnimalType.boar,
+      final other => throw Exception('Unknown animal: $other'),
+    },
+    x: (json['x'] as num).toDouble(),
+    y: (json['y'] as num).toDouble(),
+    health: json['health'] as int,
+    maxHealth: json['maxHealth'] as int,
+    speed: (json['speed'] as num).toDouble(),
+    movement: movementFromJson(json['movement'] as Map<String, dynamic>?),
+  );
+}
+
 Vector2 pointFromJson(Map<String, dynamic> json) {
   return Vector2((json['x'] as num).toDouble(), (json['y'] as num).toDouble());
 }

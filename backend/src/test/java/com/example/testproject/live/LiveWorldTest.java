@@ -1,5 +1,6 @@
 package com.example.testproject.live;
 
+import com.example.testproject.model.AnimalType;
 import com.example.testproject.model.BuildingType;
 import com.example.testproject.model.ItemType;
 import com.example.testproject.model.dto.BoatDto;
@@ -13,9 +14,12 @@ import com.example.testproject.repository.BuildingRepository;
 import com.example.testproject.repository.PlayerVitalsRepository;
 import com.example.testproject.repository.ResourceNodeRepository;
 import com.example.testproject.repository.WorldRepository;
+import com.example.testproject.service.AnimalService;
 import com.example.testproject.service.InventoryService;
 import com.example.testproject.service.UserService;
 import com.example.testproject.service.WorldService;
+import jakarta.websocket.ContainerProvider;
+import jakarta.websocket.WebSocketContainer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,6 +74,9 @@ class LiveWorldTest {
 
     @Autowired
     private LiveWorldService liveWorldService;
+
+    @Autowired
+    private AnimalService animalService;
 
     @Autowired
     private ResourceNodeRepository resourceNodeRepository;
@@ -578,6 +585,52 @@ class LiveWorldTest {
     }
 
     @Test
+    void theSnapshotListsTheAnimals() throws Exception {
+        List<Map<String, Object>> animals = list(connect(aliceId).expect("snapshot"), "animals");
+
+        assertThat(animals).isNotEmpty();
+        assertThat(animals).extracting(a -> a.get("type")).contains("RABBIT", "BOAR");
+        assertThat(animals).allSatisfy(a -> assertThat(number(a, "speed")).isPositive());
+    }
+
+    @Test
+    void aBoarBitesAPlayerStandingNextToIt() throws Exception {
+        TestClient alice = joinAt(worldId, aliceId, point(100, 0));
+        animalService.spawnAt(worldId, AnimalType.BOAR, new Point(100, 0));
+
+        liveWorldService.tickAnimals(worldId);
+
+        Map<String, Object> hurt = alice.expectIgnoringAnimals("hurt");
+        assertThat(hurt.get("by")).isEqualTo("BOAR");
+        assertThat(number(map(alice.expectIgnoringAnimals("state"), "state"), "health")).isCloseTo(90, within(0.5));
+    }
+
+    @Test
+    void boarsInAPeacefulWorldLeaveYouAlone() throws Exception {
+        long peaceful = worldService.createWorld(new CreateWorldRequest("Peaceful", false, "DROP")).id();
+        TestClient alice = joinAt(peaceful, aliceId, point(100, 0));
+        animalService.spawnAt(peaceful, AnimalType.BOAR, new Point(100, 0));
+
+        liveWorldService.tickAnimals(peaceful);
+
+        alice.expectNoneIgnoringAnimals("hurt");
+    }
+
+    @Test
+    void aBoarCanKillYou() throws Exception {
+        TestClient alice = joinAt(worldId, aliceId, point(100, 0));
+        var vitals = playerVitalsRepository.findByWorldIdAndUserId(worldId, aliceId).orElseThrow();
+        vitals.setHealth(5);
+        playerVitalsRepository.save(vitals);
+        animalService.spawnAt(worldId, AnimalType.BOAR, new Point(100, 0));
+
+        liveWorldService.tickAnimals(worldId);
+
+        alice.expectIgnoringAnimals("playerRespawned");
+        assertThat(alice.expectIgnoringAnimals("youDied").get("cause")).isEqualTo("A boar got you");
+    }
+
+    @Test
     void onlyOneTabCanPlayAsAUserAtATime() throws Exception {
         TestClient alice = connectAs(worldId, aliceId, "tab-1");
         alice.expect("snapshot");
@@ -731,12 +784,20 @@ class LiveWorldTest {
     /// Connects as the browser tab [clientId].
     private TestClient connectAs(long worldId, long userId, String clientId) throws Exception {
         TestClient client = new TestClient();
-        client.session = new StandardWebSocketClient()
+        client.session = new StandardWebSocketClient(webSocketContainer())
                 .execute(client, "ws://localhost:{port}/ws/worlds/{worldId}?userId={userId}&clientId={clientId}",
                         port, worldId, userId, clientId)
                 .get(5, TimeUnit.SECONDS);
         clients.add(client);
         return client;
+    }
+
+    /// The Java WebSocket client only takes messages up to 8 KB by default,
+    /// and a snapshot is bigger than that. (Browsers have no such limit.)
+    private static WebSocketContainer webSocketContainer() {
+        WebSocketContainer container = ContainerProvider.getWebSocketContainer();
+        container.setDefaultMaxTextMessageBufferSize(1024 * 1024);
+        return container;
     }
 
     private static Map<String, Object> point(double x, double y) {
@@ -779,6 +840,31 @@ class LiveWorldTest {
             assertThat(message).as("expected a %s message", type).isNotNull();
             assertThat(message.get("type")).as("message: %s", message).isEqualTo(type);
             return message;
+        }
+
+        /// The next message of [type], skipping animal events - animals move
+        /// on their own and can turn up at any point.
+        Map<String, Object> expectIgnoringAnimals(String type) throws InterruptedException {
+            while (true) {
+                Map<String, Object> message = expectAny();
+                String actual = (String) message.get("type");
+                if (actual.startsWith("animal")) {
+                    continue;
+                }
+                assertThat(actual).as("message: %s", message).isEqualTo(type);
+                return message;
+            }
+        }
+
+        /// No message of [type] for a moment (animal events don't count).
+        void expectNoneIgnoringAnimals(String type) throws InterruptedException {
+            long until = System.currentTimeMillis() + 300;
+            while (System.currentTimeMillis() < until) {
+                Map<String, Object> message = received.poll(50, TimeUnit.MILLISECONDS);
+                if (message != null) {
+                    assertThat(message.get("type")).as("message: %s", message).isNotEqualTo(type);
+                }
+            }
         }
 
         /// The next message, whatever it is.

@@ -118,6 +118,11 @@ class _MinimapPainter extends CustomPainter {
       canvas.drawCircle(toMap(boat.position), 2, boatPaint);
     }
 
+    for (final animal in game.animals.values) {
+      final color = animal.type == AnimalType.boar ? const Color(0xFF3E2723) : const Color(0xFFEFEBE9);
+      canvas.drawCircle(toMap(animal.position), 1.8, Paint()..color = color);
+    }
+
     for (final remote in game.remotePlayers) {
       _drawPlayer(canvas, toMap(remote.position), remote.ownerColor, 3);
     }

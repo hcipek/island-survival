@@ -9,6 +9,7 @@ import com.example.testproject.model.User;
 import com.example.testproject.repository.BoatRepository;
 import com.example.testproject.repository.PlayerPresenceRepository;
 import com.example.testproject.repository.UserRepository;
+import com.example.testproject.service.AnimalService;
 import com.example.testproject.service.CraftingService;
 import com.example.testproject.service.InventoryService;
 import com.example.testproject.service.PlayerVitalsService;
@@ -47,6 +48,7 @@ public class LiveWorldService {
     private final PlayerVitalsService playerVitalsService;
     private final InventoryService inventoryService;
     private final CraftingService craftingService;
+    private final AnimalService animalService;
     private final PlayerPresenceRepository playerPresenceRepository;
     private final BoatRepository boatRepository;
     private final UserRepository userRepository;
@@ -63,6 +65,7 @@ public class LiveWorldService {
             PlayerVitalsService playerVitalsService,
             InventoryService inventoryService,
             CraftingService craftingService,
+            AnimalService animalService,
             PlayerPresenceRepository playerPresenceRepository,
             BoatRepository boatRepository,
             UserRepository userRepository
@@ -73,6 +76,7 @@ public class LiveWorldService {
         this.playerVitalsService = playerVitalsService;
         this.inventoryService = inventoryService;
         this.craftingService = craftingService;
+        this.animalService = animalService;
         this.playerPresenceRepository = playerPresenceRepository;
         this.boatRepository = boatRepository;
         this.userRepository = userRepository;
@@ -108,6 +112,9 @@ public class LiveWorldService {
                 loose.removedIds().forEach(id -> registry.broadcast(worldId, LiveEvents.nodeRemoved(id)));
                 loose.added().forEach(node ->
                         registry.broadcast(worldId, LiveEvents.nodeAdded(ResourceNodeService.view(node))));
+                // Animals live in memory, so after a restart (or for a world
+                // nobody's been in) they're placed now.
+                animalService.ensureAnimals(worldId);
             }
 
             registry.register(worldId, userId, session);
@@ -322,6 +329,40 @@ public class LiveWorldService {
         inventoryService.sendTo(worldId, userId);
     }
 
+    /// Lets every animal in [worldId] decide what to do next, tells everyone
+    /// where they're heading, and applies boar bites. Run every half second
+    /// (see [WorldTicker]).
+    public void tickAnimals(long worldId) {
+        Instant now = Instant.now();
+        List<AnimalService.Target> players = registry.joinedUserIds(worldId).stream()
+                .map(userId -> new AnimalService.Target(
+                        userId, currentPositionOf(worldId, userId), presenceOf(worldId, userId).getBoatId() == null))
+                .toList();
+        boolean aggressive = worldService.getWorld(worldId).settings().animalAggression();
+
+        AnimalService.Changes changes = animalService.think(worldId, players, aggressive, now);
+
+        for (AnimalService.Animal animal : changes.moved()) {
+            registry.broadcast(worldId, LiveEvents.animalMoved(animal.id(), animal.movement(), animal.restingAt()));
+        }
+        for (AnimalService.Bite bite : changes.bites()) {
+            PlayerVitals vitals = playerVitalsService.hurt(worldId, bite.userId(), bite.damage());
+            if (vitals.getHealth() <= 0) {
+                die(worldId, bite.userId(), "A boar got you");
+            } else {
+                registry.sendToUser(worldId, bite.userId(), LiveEvents.hurt(bite.damage(), bite.by().name()));
+                playerVitalsService.sendStateTo(vitals);
+            }
+        }
+    }
+
+    /// New animals now and then, up to each island's limit.
+    public void respawnAnimals(long worldId) {
+        for (AnimalService.Animal animal : animalService.respawn(worldId, AnimalService.RESPAWN_CHANCE)) {
+            registry.broadcast(worldId, LiveEvents.animalAdded(AnimalService.view(animal)));
+        }
+    }
+
     /// Brings a player's hunger and health up to date, tells them, and
     /// handles their death if health has run out. Run regularly for everyone
     /// in a world (see [WorldTicker]).
@@ -411,11 +452,15 @@ public class LiveWorldService {
                 .map(p -> LiveEvents.position(p.getX(), p.getY(), p.getBoatId()))
                 .orElse(null);
 
+        List<Map<String, Object>> animals = animalService.animalsIn(worldId).stream()
+                .map(AnimalService::view)
+                .toList();
+
         resourceNodeService.ensureNodes(worldId);
         return LiveEvents.snapshot(
                 worldService.getState(worldId, excludingUserId), worldService.getBuildings(worldId), boats, players,
                 resourceNodeService.nodesView(worldId), inventoryService.view(worldId, excludingUserId),
-                craftingService.recipesView(), you, worldService.getWorld(worldId)
+                craftingService.recipesView(), you, worldService.getWorld(worldId), animals
         );
     }
 

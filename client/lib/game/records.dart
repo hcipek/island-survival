@@ -127,3 +127,31 @@ class RemotePlayerRecord {
     this.movement,
   });
 }
+
+enum AnimalType { rabbit, boar }
+
+/// An animal as the server describes it. The server decides what animals
+/// do; [movement] is the walk it's on, simulated at [speed] like any other
+/// movement.
+class AnimalRecord {
+  final int id;
+  final AnimalType type;
+  final double x;
+  final double y;
+  final int health;
+  final int maxHealth;
+  final double speed;
+  final MovementRecord? movement;
+
+  const AnimalRecord({
+    required this.id,
+    required this.type,
+    required this.x,
+    required this.y,
+    required this.health,
+    required this.maxHealth,
+    required this.speed,
+    this.movement,
+  });
+}
+

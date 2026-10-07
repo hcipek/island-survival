@@ -80,6 +80,11 @@ public class WorldIsland {
         return distanceFromCenter(x, y) <= grassRadius();
     }
 
+    /// Whether (x, y) is on this island at all (sand or grass).
+    public boolean isOnLand(double x, double y) {
+        return distanceFromCenter(x, y) <= radius;
+    }
+
     private double distanceFromCenter(double x, double y) {
         return Math.hypot(x - centerX, y - centerY);
     }

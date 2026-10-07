@@ -64,6 +64,7 @@ public class WorldService {
     private final PlayerVitalsService playerVitalsService;
     private final InventoryService inventoryService;
     private final ResourceNodeService resourceNodeService;
+    private final AnimalService animalService;
     private final WorldSessionRegistry sessionRegistry;
     private final Random random = new Random();
 
@@ -77,6 +78,7 @@ public class WorldService {
             PlayerVitalsService playerVitalsService,
             InventoryService inventoryService,
             ResourceNodeService resourceNodeService,
+            AnimalService animalService,
             WorldSessionRegistry sessionRegistry
     ) {
         this.worldRepository = worldRepository;
@@ -88,6 +90,7 @@ public class WorldService {
         this.playerVitalsService = playerVitalsService;
         this.inventoryService = inventoryService;
         this.resourceNodeService = resourceNodeService;
+        this.animalService = animalService;
         this.sessionRegistry = sessionRegistry;
     }
 
@@ -119,6 +122,7 @@ public class WorldService {
         playerVitalsService.deleteAllIn(worldId);
         inventoryService.deleteAllIn(worldId);
         resourceNodeService.deleteAllIn(worldId);
+        animalService.forgetWorld(worldId);
         worldRepository.deleteById(worldId);
     }
 

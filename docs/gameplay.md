@@ -29,8 +29,7 @@ settings.
 | Animal aggression | on: boars attack players / off: animals never attack | on |
 | When you die, your bag is... | **kept** / **dropped** in a pile where you died, to go back for before it disappears / **lost** | dropped |
 
-Your quick-access bar is always kept. (Animals are being built, so
-*animal aggression* doesn't change anything yet.)
+Your quick-access bar is always kept.
 
 ## Getting around
 
@@ -62,6 +61,23 @@ Your quick-access bar is always kept. (Animals are being built, so
   `backend/.../service/ResourceNodeService.java` (the constants at the
   top). Gather and chop times are `gatherSeconds` and `chopSeconds` in
   `client/lib/island_game.dart`.
+
+## Animals
+
+| Animal | Where | Behaviour |
+|---|---|---|
+| Rabbit | one on the home island, two on each outer island | wanders, and runs away from players who come close |
+| Boar | one on each outer island (none at home) | wanders. With *animal aggression* on, it chases a player on foot on its island and bites when it catches up |
+
+- Animals stay on their own island, and new ones appear over time up to
+  those numbers.
+- **Boar bites** cost health, so you can die from them. The screen flashes
+  red when you're bitten. You walk faster than a boar, it gives up if you
+  get far enough away, and it can't reach you in a boat.
+- Everyone sees the same animals in the same places.
+- Hunting them comes next (spear and meat).
+- Values are in `backend/.../service/AnimalService.java` and
+  `backend/.../model/AnimalType.java`.
 
 ## Inventory
 

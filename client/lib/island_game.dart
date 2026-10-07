@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 
+import 'game/animals.dart';
 import 'game/boat.dart';
 import 'game/build_ghost.dart';
 import 'game/buildings.dart';
@@ -16,6 +17,7 @@ import 'inventory.dart';
 
 // The game's pieces live in lib/game/; exporting them here means anything
 // that imports the game gets them too.
+export 'game/animals.dart';
 export 'game/boat.dart';
 export 'game/build_ghost.dart';
 export 'game/buildings.dart';
@@ -34,6 +36,7 @@ class IslandGame extends FlameGame {
   final List<BoatRecord> existingBoats;
   final List<RemotePlayerRecord> existingPlayers;
   final List<ResourceNodeRecord> existingNodes;
+  final List<AnimalRecord> existingAnimals;
 
   /// Where this player was when they last left (null the first time), and
   /// the boat they were aboard, if any - they start from there.
@@ -52,6 +55,7 @@ class IslandGame extends FlameGame {
     this.existingBoats = const [],
     this.existingPlayers = const [],
     this.existingNodes = const [],
+    this.existingAnimals = const [],
     this.startPosition,
     this.startBoatId,
   });
@@ -66,6 +70,7 @@ class IslandGame extends FlameGame {
   final List<BoatComponent> boats = [];
   final List<LumberjackComponent> lumberjacks = [];
   final Map<int, ResourceNodeComponent> resourceNodes = {};
+  final Map<int, AnimalComponent> animals = {};
   final Map<int, PlayerComponent> _remotePlayers = {};
 
   /// The island the player is currently standing/walking on.
@@ -167,6 +172,9 @@ class IslandGame extends FlameGame {
     homeIsland = home!;
     currentPlayerIsland = homeIsland;
 
+    for (final record in existingAnimals) {
+      await _spawnAnimal(record);
+    }
     for (final record in existingNodes) {
       await _spawnNode(record);
     }
@@ -390,6 +398,47 @@ class IslandGame extends FlameGame {
     node.setRegrowsIn(record.regrowsIn);
     resourceNodes[record.id] = node;
     await islandWorld.add(node);
+  }
+
+  Future<void> _spawnAnimal(AnimalRecord record) async {
+    final animal = AnimalComponent.fromRecord(record);
+    animals[record.id] = animal;
+    await islandWorld.add(animal);
+  }
+
+  /// A new animal appeared.
+  Future<void> addAnimal(AnimalRecord record) async {
+    if (animals.containsKey(record.id)) return;
+    await _spawnAnimal(record);
+  }
+
+  /// An animal set off somewhere (or, with no [movement], stopped at
+  /// [restingAt]).
+  void moveAnimal(int animalId, MovementRecord? movement, Vector2 restingAt) {
+    final animal = animals[animalId];
+    if (animal == null) return;
+    if (movement == null) {
+      animal
+        ..stop()
+        ..position = restingAt;
+    } else {
+      animal.follow(movement);
+    }
+  }
+
+  void removeAnimal(int animalId) {
+    animals.remove(animalId)?.removeFromParent();
+  }
+
+  /// Brings the animals in line with a fresh snapshot.
+  Future<void> applyAnimals(List<AnimalRecord> latest) async {
+    for (final animal in animals.values.toList()) {
+      animal.removeFromParent();
+    }
+    animals.clear();
+    for (final record in latest) {
+      await _spawnAnimal(record);
+    }
   }
 
   /// Brings trees, bushes and sticks in line with a fresh snapshot.
